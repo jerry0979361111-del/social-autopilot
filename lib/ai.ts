@@ -30,14 +30,20 @@ export async function generateText(
   const where = platforms.map((p) => (p === "ig" ? "Instagram" : "Facebook")).join(" 與 ");
   const instructions = [
     `你是「${brand.name}」的社群小編，負責撰寫要同時發到 ${where} 的貼文。`,
+    brand.about ? `品牌背景：${brand.about}` : "",
+    brand.audience ? `目標受眾：${brand.audience}。文案要從他們的角度出發，回應他們真正在意的問題。` : "",
     `文案語氣：${brand.tone}。`,
+    brand.website ? `行動呼籲可引導讀者私訊或前往官網 ${brand.website}。` : "",
     "使用繁體中文（台灣用語）。",
     "文案結構：吸睛開頭一句 → 2～4 段重點（可用條列或表情符號）→ 行動呼籲 → 換行後 5～10 個相關 hashtag。",
     "總長度控制在 150～400 字，不要使用 Markdown 語法（社群平台不會渲染）。",
     "不要捏造具體數字、價格或日期；若引用最新資訊，只寫你確定的事實。",
+    "涉及投資、租金或報酬時，不得保證獲利或使用誇大字眼，只能用「可評估」「供參考」等中性說法。",
     "只輸出一個 JSON 物件，不要有其他文字，格式：",
     '{"title":"給內部管理用的短標題（20 字內）","caption":"完整貼文文案（含 hashtag）","imagePrompt":"給 AI 畫配圖用的英文描述，描述畫面內容，不要在圖中放文字"}',
-  ].join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   const res = await openai("/responses", {
     model: env.textModel(),

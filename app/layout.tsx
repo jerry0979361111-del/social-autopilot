@@ -11,7 +11,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="zh-Hant-TW">
-      <body>
+      <body style={{ "--primary": brand.colorPrimary, "--primary-text": "#ffffff" } as React.CSSProperties}>
         <header className="nav">
           <strong>{brand.name} · 社群自動發文</strong>
           <Link href="/posts">貼文</Link>

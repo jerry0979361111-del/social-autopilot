@@ -26,6 +26,9 @@ export const brand = {
   colorSecondary: process.env.BRAND_COLOR_SECONDARY || "#F2A65A",
   style: process.env.BRAND_STYLE || "乾淨、明亮、有質感的生活感攝影風格",
   tone: process.env.BRAND_TONE || "親切專業、口語自然，適度使用表情符號",
+  audience: process.env.BRAND_AUDIENCE || "",
+  about: process.env.BRAND_ABOUT || "",
+  website: process.env.BRAND_WEBSITE || "",
 };
 
 export const GRAPH_VERSION = "v23.0";
