@@ -23,6 +23,9 @@ export function loginUrl(state: string): string {
     scope: META_SCOPES.join(","),
     response_type: "code",
   });
+  // 「Facebook Login for Business」要用後台建立的設定編號；傳統「Facebook 登入」則不用
+  const configId = process.env.META_CONFIG_ID;
+  if (configId) q.set("config_id", configId);
   return `https://www.facebook.com/${GRAPH_VERSION}/dialog/oauth?${q}`;
 }
 
