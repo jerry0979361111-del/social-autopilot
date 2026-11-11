@@ -1,6 +1,6 @@
 import { env, GRAPH_VERSION } from "./config";
 import { createRecord, META_TITLE, queryRecords, updateRecord, type NotionRecord } from "./notion";
-import type { MetaConnection, MetaPage, Platform, PostData, PublishResult } from "./types";
+import type { MetaConnection, MetaPage, Platform, PostData, PostMetrics, PublishResult } from "./types";
 
 const GRAPH = `https://graph.facebook.com/${GRAPH_VERSION}`;
 
@@ -11,6 +11,9 @@ export const META_SCOPES = [
   "business_management",
   "instagram_basic",
   "instagram_content_publish",
+  // 成效分析用（讀取觸及、收藏等洞察數據）
+  "read_insights",
+  "instagram_manage_insights",
 ];
 
 export const redirectUri = () => `${env.baseUrl()}/api/auth/meta/callback`;
@@ -20,12 +23,12 @@ export function loginUrl(state: string): string {
     client_id: env.metaAppId(),
     redirect_uri: redirectUri(),
     state,
-    scope: META_SCOPES.join(","),
     response_type: "code",
   });
-  // 「Facebook Login for Business」要用後台建立的設定編號；傳統「Facebook 登入」則不用
+  // 「Facebook Login for Business」用後台建立的設定編號決定權限；傳統「Facebook 登入」則用 scope
   const configId = process.env.META_CONFIG_ID;
   if (configId) q.set("config_id", configId);
+  else q.set("scope", META_SCOPES.join(","));
   return `https://www.facebook.com/${GRAPH_VERSION}/dialog/oauth?${q}`;
 }
 
@@ -175,4 +178,54 @@ export async function publishToPlatforms(
     }
   }
   return results;
+}
+
+// ---------- 成效數據 ----------
+
+async function tryGraph(path: string, params: Record<string, string>): Promise<any | null> {
+  try {
+    return await graph(path, params);
+  } catch {
+    return null;
+  }
+}
+
+function insightValue(res: any, name: string): number | undefined {
+  const m = (res?.data ?? []).find((d: any) => d.name === name);
+  const v = m?.values?.[0]?.value ?? m?.total_value?.value;
+  return typeof v === "number" ? v : undefined;
+}
+
+/** 讀取單則貼文的互動數據；沒有洞察權限時只回傳讚、留言、分享。 */
+export async function fetchMetrics(platform: Platform, id: string): Promise<PostMetrics | null> {
+  const page = selectedPage(await getConnection());
+  if (!page) return null;
+  const token = page.token;
+  const fetchedAt = new Date().toISOString();
+  if (platform === "fb") {
+    const base = await tryGraph(`/${id}`, {
+      fields: "reactions.summary(true).limit(0),comments.summary(true).limit(0),shares",
+      access_token: token,
+    });
+    if (!base) return null;
+    const ins = await tryGraph(`/${id}/insights`, { metric: "post_impressions_unique", access_token: token });
+    return {
+      likes: base.reactions?.summary?.total_count,
+      comments: base.comments?.summary?.total_count,
+      shares: base.shares?.count ?? 0,
+      reach: insightValue(ins, "post_impressions_unique"),
+      fetchedAt,
+    };
+  }
+  const base = await tryGraph(`/${id}`, { fields: "like_count,comments_count", access_token: token });
+  if (!base) return null;
+  const ins = await tryGraph(`/${id}/insights`, { metric: "reach,saved,shares", access_token: token });
+  return {
+    likes: base.like_count,
+    comments: base.comments_count,
+    reach: insightValue(ins, "reach"),
+    saves: insightValue(ins, "saved"),
+    shares: insightValue(ins, "shares"),
+    fetchedAt,
+  };
 }

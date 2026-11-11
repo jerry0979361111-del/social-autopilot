@@ -8,6 +8,8 @@ import { env } from "./config";
 
 export const META_TITLE = "[系統] Meta 連線設定";
 export const AUTOMATION_PREFIX = "[自動化] ";
+export const MANAGER_TITLE = "[系統] AI 社群經理設定";
+export const REPORT_PREFIX = "[成效報告] ";
 
 export const STATUSES = ["草稿", "已排程", "發布中", "已發布", "發布失敗"] as const;
 export type Status = (typeof STATUSES)[number];
@@ -129,4 +131,8 @@ export async function archiveRecord(id: string): Promise<void> {
   await notion(`/pages/${id}`, "PATCH", { archived: true });
 }
 
-export const titleIsReserved = (title: string) => title === META_TITLE || title.startsWith(AUTOMATION_PREFIX);
+export const titleIsReserved = (title: string) =>
+  title === META_TITLE ||
+  title === MANAGER_TITLE ||
+  title.startsWith(AUTOMATION_PREFIX) ||
+  title.startsWith(REPORT_PREFIX);

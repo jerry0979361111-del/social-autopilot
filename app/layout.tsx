@@ -15,6 +15,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <header className="nav">
           <strong>{brand.name} · 社群自動發文</strong>
           <Link href="/posts">貼文</Link>
+          <Link href="/manager">AI 社群經理</Link>
           <Link href="/automations">自動化任務</Link>
           <Link href="/setup">設定檢查</Link>
         </header>

@@ -1,4 +1,5 @@
 import { generateImage, generateText } from "./ai";
+import { runManager } from "./manager";
 import { publishToPlatforms } from "./meta";
 import {
   AUTOMATION_PREFIX,
@@ -119,8 +120,9 @@ export function dueSlot(a: AutomationData, nowMs: number): string | null {
 export async function runCron(budgetMs = 240_000) {
   const started = Date.now();
   const timeLeft = () => budgetMs - (Date.now() - started);
-  const report: { posts: string[]; automations: string[]; recovered: string[] } = {
+  const report: { posts: string[]; manager: string[]; automations: string[]; recovered: string[] } = {
     posts: [],
+    manager: [],
     automations: [],
     recovered: [],
   };
@@ -151,7 +153,14 @@ export async function runCron(budgetMs = 240_000) {
     report.posts.push(`${r.title} → ${res.status}`);
   }
 
-  // 3) 到點的自動化任務（每個要產文產圖，較花時間）
+  // 3) AI 社群經理：每週成效分析、補齊未來 7 天的貼文
+  try {
+    report.manager = await runManager(timeLeft);
+  } catch (e: any) {
+    report.manager = [`錯誤：${e?.message ?? e}`];
+  }
+
+  // 4) 到點的自動化任務（每個要產文產圖，較花時間）
   for (const a of await listAutomations()) {
     if (timeLeft() < 150_000) break;
     const slot = dueSlot(a.data, Date.now());

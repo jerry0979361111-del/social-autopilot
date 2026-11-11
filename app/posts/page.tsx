@@ -108,7 +108,11 @@ export default async function PostsPage({
                 {(d.platforms ?? []).map((x) => PLATFORM_LABEL[x]).join(" + ")} · 建立 {formatTaipei(p.createdTime)}
                 {p.publishAt && ` · 發布時間 ${formatTaipei(p.publishAt)}`}
                 {d.automationId && " · 自動化"}
+                {d.origin === "manager" && ` · AI 社群經理（${d.pillar}）`}
               </div>
+              {d.review && !d.review.pass && (
+                <p className="err" style={{ margin: "6px 0" }}>審稿未通過：{d.review.issues.join("；")}</p>
+              )}
               {d.results && (
                 <ul style={{ margin: "6px 0", paddingLeft: 18 }}>
                   {Object.entries(d.results).map(([k, r]) =>
