@@ -10,35 +10,54 @@ import {
   type NotionRecord,
 } from "./notion";
 import { slotsBetween } from "./time";
-import type { ManagerData, Pillar, Platform, PostData, PostMetrics, ReportData } from "./types";
+import type { ChannelPlan, ManagerData, Pillar, Platform, PostData, PostMetrics, ReportData } from "./types";
 import { listPosts } from "./workflow";
 
-// AI 社群經理：自己排內容企劃、產文產圖、發布前把關、每週依成效調整方向。
+// AI 社群經理：FB、IG 分開經營。各自排內容企劃、產文、審稿、做圖，每週依各自成效調整方向。
 // 實際發布交給既有的排程流程（狀態「已排程」＋發布時間），由 cron 到點發出。
 
-export const DEFAULT_PILLARS: Pillar[] = [
-  { name: "留學生活與適應", description: "孩子到墨爾本的生活、安全、飲食、交通與適應建議", weight: 1.2 },
-  { name: "學區與區域介紹", description: "大學周邊區域的通勤、生活機能與居住氛圍", weight: 1 },
-  { name: "住宿選擇", description: "租屋、學生公寓與買房的比較與注意事項", weight: 1 },
-  { name: "房產知識", description: "澳洲買房流程、持有成本、稅費與貸款觀念（中性說明，不保證獲利）", weight: 0.8 },
-  { name: "家長心聲與規劃", description: "家長的擔心、陪讀、畢業後工作與長期規劃", weight: 0.8 },
-  { name: "品牌與服務", description: "澳洲美家如何協助家庭挑房、試算成本與看房", weight: 0.4 },
-];
+export const CHANNEL_LABEL: Record<Platform, string> = { fb: "Facebook", ig: "Instagram" };
 
-export const DEFAULT_MANAGER: ManagerData = {
-  kind: "manager",
-  enabled: false,
-  platforms: ["ig", "fb"],
-  days: [1, 3, 5],
-  times: ["20:00"],
-  pillars: DEFAULT_PILLARS,
-  notes: "",
-  learnings: "",
-  logs: [],
+export const DEFAULT_PILLARS: Record<Platform, Pillar[]> = {
+  fb: [
+    { name: "澳洲時事解讀", description: "近期澳洲房市、租屋、留學、簽證與移民政策新聞，用家長的角度解讀影響與準備方式", weight: 1.4 },
+    { name: "區域與學區深度介紹", description: "大學周邊區域的通勤、治安、生活機能、租金水準與居住氛圍", weight: 1 },
+    { name: "留學家庭實用指南", description: "租屋流程、預算規劃、生活成本、保險與開戶等家長必知事項", weight: 1 },
+    { name: "房產知識", description: "澳洲買房流程、外國人購屋規定、持有成本與稅費觀念（中性說明，不保證獲利）", weight: 0.8 },
+    { name: "家長問答與討論", description: "家長最常問的問題，引導留言分享經驗", weight: 0.8 },
+    { name: "品牌服務", description: "澳洲美家如何協助家庭挑房、試算成本與看房", weight: 0.4 },
+  ],
+  ig: [
+    { name: "墨爾本街區與建案實景", description: "各區街景、建案外觀與周邊環境，讓家長看見孩子未來的生活場景", weight: 1.3 },
+    { name: "留學生活日常", description: "校園周邊、市場、咖啡廳、交通等墨爾本生活感", weight: 1 },
+    { name: "一圖看懂小知識", description: "租屋檢查清單、預算拆解、看房重點等值得收藏的重點整理", weight: 1 },
+    { name: "居住空間", description: "採光、格局、書桌與收納等適合學生的居住空間", weight: 0.8 },
+    { name: "品牌服務", description: "澳洲美家的服務與看房紀錄", weight: 0.4 },
+  ],
 };
+
+const DEFAULT_CHANNELS: Record<Platform, ChannelPlan> = {
+  fb: { enabled: true, days: [2, 4, 6], times: ["12:30"], pillars: DEFAULT_PILLARS.fb, notes: "", learnings: "" },
+  ig: { enabled: true, days: [1, 3, 5], times: ["20:00"], pillars: DEFAULT_PILLARS.ig, notes: "", learnings: "" },
+};
+
+export const DEFAULT_MANAGER: ManagerData = { kind: "manager", enabled: false, channels: DEFAULT_CHANNELS, logs: [] };
+
+/** 舊版設定（FB、IG 共用）轉成分開經營的格式 */
+export function channelsOf(m: ManagerData): Record<Platform, ChannelPlan> {
+  if (m.channels) return m.channels;
+  const legacy = (p: Platform): ChannelPlan => ({
+    ...DEFAULT_CHANNELS[p],
+    enabled: m.platforms ? m.platforms.includes(p) : true,
+    notes: m.notes ?? "",
+    learnings: m.learnings ?? "",
+  });
+  return { fb: legacy("fb"), ig: legacy("ig") };
+}
 
 const HORIZON_MS = 7 * 24 * 3600_000;
 const LEAD_MS = 60 * 60_000; // 至少提前一小時產好，留緩衝
+const slotKey = (p: Platform, iso: string) => `${p}|${iso}`;
 
 export async function getManagerRecord(): Promise<NotionRecord<ManagerData> | null> {
   const rows = await queryRecords<ManagerData>({ property: "標題", title: { equals: MANAGER_TITLE } }, undefined, 1);
@@ -46,7 +65,8 @@ export async function getManagerRecord(): Promise<NotionRecord<ManagerData> | nu
 }
 
 export async function getManager(): Promise<ManagerData> {
-  return (await getManagerRecord())?.data ?? DEFAULT_MANAGER;
+  const m = (await getManagerRecord())?.data ?? DEFAULT_MANAGER;
+  return { ...m, channels: channelsOf(m) };
 }
 
 export async function saveManager(data: ManagerData): Promise<void> {
@@ -77,8 +97,14 @@ function pickPillar(pillars: Pillar[], recentPillars: string[]): Pillar {
   return weighted[weighted.length - 1].p;
 }
 
-/** 未來 7 天內，還沒有貼文的排程時段（審稿沒過的草稿最多重試兩次，之後跳過該時段） */
-export function openSlots(m: ManagerData, posts: NotionRecord<PostData>[], nowMs = Date.now()): string[] {
+/** 某平台未來 7 天內還沒有貼文的時段（審稿沒過的草稿最多重試兩次，之後跳過該時段） */
+export function openSlots(
+  platform: Platform,
+  plan: ChannelPlan,
+  posts: NotionRecord<PostData>[],
+  nowMs = Date.now(),
+): string[] {
+  if (!plan.enabled) return [];
   const drafts = new Map<string, number>();
   const taken = new Set<string>();
   for (const p of posts) {
@@ -88,35 +114,42 @@ export function openSlots(m: ManagerData, posts: NotionRecord<PostData>[], nowMs
     else taken.add(s);
   }
   for (const [s, n] of drafts) if (n >= 2) taken.add(s);
-  return slotsBetween(m.days, m.times, nowMs + LEAD_MS, nowMs + HORIZON_MS)
+  return slotsBetween(plan.days, plan.times, nowMs + LEAD_MS, nowMs + HORIZON_MS)
     .map((t) => new Date(t).toISOString())
-    .filter((s) => !taken.has(s));
+    .filter((iso) => !taken.has(slotKey(platform, iso)));
 }
 
-/** 為最近一個空時段產一則貼文。通過把關就排程，沒通過就留成草稿並記錄原因。 */
+/** 為最近的一個空時段（FB 或 IG）產一則貼文。通過把關就排程，沒通過就留成草稿並記錄原因。 */
 export async function fillNextSlot(): Promise<string | null> {
   const m = await getManager();
+  const channels = channelsOf(m);
   const posts = await listPosts();
-  const slot = openSlots(m, posts)[0];
-  if (!slot) return null;
+  const next = (["fb", "ig"] as Platform[])
+    .map((p) => ({ platform: p, slot: openSlots(p, channels[p], posts)[0] }))
+    .filter((x) => x.slot)
+    .sort((a, b) => a.slot!.localeCompare(b.slot!))[0];
+  if (!next) return null;
+  const { platform } = next;
+  const slot = next.slot!;
+  const plan = channels[platform];
+  const label = CHANNEL_LABEL[platform];
 
-  const managerPosts = posts.filter((p) => p.data.origin === "manager");
+  const channelPosts = posts.filter((p) => p.data.origin === "manager" && p.data.platforms.includes(platform));
   const recentTitles = posts.slice(0, 20).map((p) => p.title);
-  const pillar = pickPillar(m.pillars.length ? m.pillars : DEFAULT_PILLARS, managerPosts.map((p) => p.data.pillar ?? ""));
-  const platforms: Platform[] = m.platforms.length ? m.platforms : ["ig", "fb"];
+  const pillar = pickPillar(plan.pillars.length ? plan.pillars : DEFAULT_PILLARS[platform], channelPosts.map((p) => p.data.pillar ?? ""));
 
   const topic = [
     `內容支柱「${pillar.name}」：${pillar.description}`,
     "請自己挑一個具體、目標受眾會想點開的子題，不要與以下近期貼文重複：",
     recentTitles.map((t) => `- ${t}`).join("\n") || "（無）",
-    m.learnings ? `近期成效洞察（請參考）：\n${m.learnings}` : "",
-    m.notes ? `經營者補充指示：\n${m.notes}` : "",
+    plan.learnings ? `${label} 近期成效洞察（請參考）：\n${plan.learnings}` : "",
+    plan.notes ? `經營者對 ${label} 的補充指示：\n${plan.notes}` : "",
   ]
     .filter(Boolean)
     .join("\n");
 
   try {
-    const text = await generateText(topic, platforms, { webSearch: true });
+    const text = await generateText(topic, [platform], { webSearch: true, channel: platform });
     let caption = text.caption;
     let review = await reviewCaption(caption, recentTitles);
     if (!review.pass && review.revisedCaption) {
@@ -124,7 +157,13 @@ export async function fillNextSlot(): Promise<string | null> {
       review = await reviewCaption(caption, recentTitles);
     }
     // 文案定稿（通過審稿）後，才依文案與主題做圖
-    const imageUrl = review.pass ? await designPostImage({ caption, topic: `${pillar.name}：${text.title}` }) : undefined;
+    const design = review.pass
+      ? await designPostImage({
+          caption,
+          topic: `${pillar.name}：${text.title}`,
+          avoidPhotoIds: posts.map((p) => p.data.photo?.id).filter(Boolean) as string[],
+        })
+      : undefined;
     const rec = await createRecord<PostData>({
       title: text.title,
       status: review.pass ? "已排程" : "草稿",
@@ -132,22 +171,23 @@ export async function fillNextSlot(): Promise<string | null> {
       data: {
         kind: "post",
         topic: `${pillar.name}｜${text.title}`,
-        platforms,
+        platforms: [platform],
         caption,
-        imageUrl,
+        imageUrl: design?.url,
+        photo: design?.photo,
         origin: "manager",
         pillar: pillar.name,
-        managerSlot: slot,
+        managerSlot: slotKey(platform, slot),
         review: { pass: review.pass, score: review.score, issues: review.issues, at: new Date().toISOString() },
       },
     });
     const msg = review.pass
-      ? `已排程「${text.title}」（${pillar.name}，審稿 ${review.score} 分）`
-      : `「${text.title}」未通過審稿，留在草稿未發布：${review.issues.join("；")}`;
+      ? `${label}：已排程「${text.title}」（${pillar.name}，審稿 ${review.score} 分）`
+      : `${label}：「${text.title}」未通過審稿，留在草稿未發布：${review.issues.join("；")}`;
     await addLog(msg, review.pass, rec.id);
     return msg;
   } catch (e: any) {
-    const msg = `產文失敗（${pillar.name}）：${e?.message ?? e}`;
+    const msg = `${label} 產文失敗（${pillar.name}）：${e?.message ?? e}`;
     await addLog(msg, false);
     return msg;
   }
@@ -168,19 +208,20 @@ export function reportDue(m: ManagerData, nowMs = Date.now()): boolean {
   return !m.lastReportAt || nowMs - new Date(m.lastReportAt).getTime() > 7 * 24 * 3600_000 - 30 * 60_000;
 }
 
-/** 抓近 28 天已發布貼文的數據 → AI 分析 → 調整支柱權重 → 寫成效報告。 */
+/** 抓近 28 天已發布貼文的數據 → FB、IG 各自 AI 分析 → 調整各自的支柱權重 → 各寫一份成效報告。 */
 export async function runWeeklyReport(): Promise<string> {
   const rec = await getManagerRecord();
   if (!rec) return "尚未啟用 AI 社群經理";
   const m = rec.data;
+  const channels = channelsOf(m);
   const now = Date.now();
   const since = now - 28 * 24 * 3600_000;
   const published = (await listPosts())
     .filter((p) => p.status === "已發布" || Object.values(p.data.results ?? {}).some((r) => r?.ok))
     .filter((p) => new Date(p.publishAt ?? p.createdTime).getTime() >= since)
-    .slice(0, 20);
+    .slice(0, 30);
 
-  const rows = [];
+  // 先更新每則貼文的數據
   for (const p of published) {
     const metrics: Partial<Record<Platform, PostMetrics>> = { ...(p.data.metrics ?? {}) };
     for (const [pf, r] of Object.entries(p.data.results ?? {}) as [Platform, any][]) {
@@ -188,63 +229,75 @@ export async function runWeeklyReport(): Promise<string> {
       const got = await fetchMetrics(pf, r.id);
       if (got) metrics[pf] = got;
     }
+    p.data.metrics = metrics;
     await updateRecord<PostData>(p.id, { data: { ...p.data, metrics } });
-    rows.push({
-      title: p.title,
-      pillar: p.data.pillar,
-      engagement: engagement(metrics),
-      reach: Object.values(metrics).reduce((s, x) => s + (x?.reach ?? 0), 0) || undefined,
-      publishedAt: p.publishAt ?? p.createdTime,
-    });
   }
 
-  if (rows.length === 0) {
-    await updateRecord<ManagerData>(rec.id, { data: { ...m, lastReportAt: new Date(now).toISOString() } });
-    return "近 28 天還沒有已發布的貼文，下週再分析";
-  }
-
-  const analysis = await analyzePerformance(rows, m.pillars.map((p) => ({ name: p.name, weight: p.weight })));
-  const weightChanges: ReportData["weightChanges"] = [];
-  const pillars = m.pillars.map((p) => {
-    const want = Number(analysis.weights[p.name]);
-    if (!Number.isFinite(want)) return p;
-    const to = Math.round(Math.min(2, Math.max(0.3, Math.min(p.weight + 0.4, Math.max(p.weight - 0.4, want)))) * 10) / 10;
-    if (to !== p.weight) weightChanges.push({ pillar: p.name, from: p.weight, to });
-    return { ...p, weight: to };
-  });
-
-  const byPillar = new Map<string, number[]>();
-  for (const r of rows) {
-    const k = r.pillar ?? "（手動貼文）";
-    byPillar.set(k, [...(byPillar.get(k) ?? []), r.engagement]);
-  }
-  const report: ReportData = {
-    kind: "report",
-    periodStart: new Date(since).toISOString(),
-    periodEnd: new Date(now).toISOString(),
-    summary: analysis.summary,
-    learnings: analysis.learnings,
-    pillarStats: [...byPillar.entries()].map(([pillar, xs]) => ({
-      pillar,
-      posts: xs.length,
-      avgEngagement: Math.round((xs.reduce((a, b) => a + b, 0) / xs.length) * 10) / 10,
-    })),
-    topPosts: [...rows].sort((a, b) => b.engagement - a.engagement).slice(0, 5),
-    weightChanges,
-  };
   const date = new Date(now + 8 * 3600_000).toISOString().slice(0, 10);
-  await createRecord<ReportData>({ title: `${REPORT_PREFIX}${date}`, status: "草稿", data: report });
+  const done: string[] = [];
+  const nextChannels = { ...channels };
+  for (const platform of ["fb", "ig"] as Platform[]) {
+    const plan = channels[platform];
+    const rows = published
+      .filter((p) => p.data.results?.[platform]?.ok)
+      .map((p) => ({
+        title: p.title,
+        pillar: p.data.pillar,
+        engagement: engagement({ [platform]: p.data.metrics?.[platform] }),
+        reach: p.data.metrics?.[platform]?.reach,
+        publishedAt: p.publishAt ?? p.createdTime,
+      }));
+    if (rows.length === 0) continue;
+
+    const analysis = await analyzePerformance(rows, plan.pillars.map((p) => ({ name: p.name, weight: p.weight })));
+    const weightChanges: ReportData["weightChanges"] = [];
+    const pillars = plan.pillars.map((p) => {
+      const want = Number(analysis.weights[p.name]);
+      if (!Number.isFinite(want)) return p;
+      const to = Math.round(Math.min(2, Math.max(0.3, Math.min(p.weight + 0.4, Math.max(p.weight - 0.4, want)))) * 10) / 10;
+      if (to !== p.weight) weightChanges.push({ pillar: p.name, from: p.weight, to });
+      return { ...p, weight: to };
+    });
+    nextChannels[platform] = { ...plan, pillars, learnings: analysis.learnings };
+
+    const byPillar = new Map<string, number[]>();
+    for (const r of rows) {
+      const k = r.pillar ?? "（手動貼文）";
+      byPillar.set(k, [...(byPillar.get(k) ?? []), r.engagement]);
+    }
+    await createRecord<ReportData>({
+      title: `${REPORT_PREFIX}${date} ${CHANNEL_LABEL[platform]}`,
+      status: "草稿",
+      data: {
+        kind: "report",
+        platform,
+        periodStart: new Date(since).toISOString(),
+        periodEnd: new Date(now).toISOString(),
+        summary: analysis.summary,
+        learnings: analysis.learnings,
+        pillarStats: [...byPillar.entries()].map(([pillar, xs]) => ({
+          pillar,
+          posts: xs.length,
+          avgEngagement: Math.round((xs.reduce((a, b) => a + b, 0) / xs.length) * 10) / 10,
+        })),
+        topPosts: [...rows].sort((a, b) => b.engagement - a.engagement).slice(0, 5),
+        weightChanges,
+      },
+    });
+    done.push(`${CHANNEL_LABEL[platform]} ${rows.length} 則`);
+  }
+
   await updateRecord<ManagerData>(rec.id, {
-    data: { ...m, pillars, learnings: analysis.learnings, lastReportAt: new Date(now).toISOString() },
+    data: { ...m, channels: nextChannels, lastReportAt: new Date(now).toISOString() },
   });
-  return `已產生 ${date} 成效報告（分析 ${rows.length} 則貼文）`;
+  return done.length ? `已產生 ${date} 成效報告（${done.join("、")}）` : "近 28 天還沒有已發布的貼文，下週再分析";
 }
 
 export async function listReports(): Promise<NotionRecord<ReportData>[]> {
   const rows = await queryRecords<ReportData>(
     { property: "標題", title: { starts_with: REPORT_PREFIX } },
     [{ timestamp: "created_time", direction: "descending" }],
-    5,
+    10,
   );
   return rows.filter((r) => r.data?.kind === "report");
 }

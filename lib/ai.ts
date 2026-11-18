@@ -21,12 +21,28 @@ async function openai(path: string, body: unknown): Promise<any> {
   return json;
 }
 
+// FB 與 IG 分開經營：受眾行為不同，文案寫法也不同
+const CHANNEL_STYLE: Record<Platform, string[]> = {
+  fb: [
+    "這篇只發 Facebook。FB 上的家長會花時間讀長文、留言討論、分享給其他家長。",
+    "選題：先上網搜尋最近 14 天澳洲（尤其墨爾本）房市、租屋、留學、簽證與移民政策的新聞，以及家長社團、論壇正在熱烈討論的話題，挑討論度最高、和留學生家長最相關的一個切入；找不到合適的新聞時，改寫家長最常問的實用問題。",
+    "寫法：開頭兩行就點出新聞事件或家長痛點（FB 只顯示前兩三行）→ 用「▍」當小標分 2～4 段解讀「這對留學生家庭代表什麼、該怎麼準備」→ 結尾拋出一個具體問題鼓勵家長留言分享經驗 → 最後一行列出參考資料來源的媒體或機構名稱。",
+    "長度 300～600 字，表情符號最多 3 個，hashtag 0～3 個。",
+  ],
+  ig: [
+    "這篇只發 Instagram。IG 上的人快速滑動、看圖為主，好內容會被收藏和轉傳。",
+    "選題：可上網搜尋近期熱門話題，但以「看完就實用、值得收藏」的常青內容為主，例如墨爾本各區生活感、租屋清單、預算規劃、校園周邊、居住空間。",
+    "寫法：第一行是 20 字內的強烈開場（問題、反差或數字感，但不可捏造數字）→ 3～5 個短段落或條列，每段 1～2 行 → 結尾呼籲「收藏起來」或「分享給正在準備留學的家長」，並引導私訊。",
+    "長度 120～250 字，可適度使用表情符號，最後換行放 10～15 個 hashtag，中英混合（例如 #墨爾本 #澳洲留學 #留學生家長 #MelbourneLiving #Melbourne）。",
+  ],
+};
+
 export type GeneratedText = { title: string; caption: string };
 
 export async function generateText(
   topic: string,
   platforms: Platform[],
-  opts: { webSearch?: boolean } = {},
+  opts: { webSearch?: boolean; channel?: Platform } = {},
 ): Promise<GeneratedText> {
   const where = platforms.map((p) => (p === "ig" ? "Instagram" : "Facebook")).join(" 與 ");
   const instructions = [
@@ -36,8 +52,11 @@ export async function generateText(
     `文案語氣：${brand.tone}。`,
     brand.website ? `行動呼籲可引導讀者私訊或前往官網 ${brand.website}。` : "",
     "使用繁體中文（台灣用語）。",
-    "文案結構：吸睛開頭一句 → 2～4 段重點（可用條列或表情符號）→ 行動呼籲 → 換行後 5～10 個相關 hashtag。",
-    "總長度控制在 150～400 字，不要使用 Markdown 語法（社群平台不會渲染）。",
+    ...(opts.channel ? CHANNEL_STYLE[opts.channel] : [
+      "文案結構：吸睛開頭一句 → 2～4 段重點（可用條列或表情符號）→ 行動呼籲 → 換行後 5～10 個相關 hashtag。",
+      "總長度控制在 150～400 字。",
+    ]),
+    "不要使用 Markdown 語法（社群平台不會渲染）。",
     "不要捏造具體數字、價格或日期；若引用最新資訊，只寫你確定的事實。",
     "涉及投資、租金或報酬時，不得保證獲利或使用誇大字眼，只能用「可評估」「供參考」等中性說法。",
     "只輸出一個 JSON 物件，不要有其他文字，格式：",

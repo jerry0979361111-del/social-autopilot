@@ -18,7 +18,11 @@ export type PostData = {
   managerSlot?: string;
   review?: ReviewResult;
   metrics?: Partial<Record<Platform, PostMetrics>>;
+  photo?: PhotoInfo;
 };
+
+/** 配圖照片的來源（真實照片需要標示作者與授權時用） */
+export type PhotoInfo = { source: "upload" | "pexels" | "wikimedia" | "ai"; id?: string; credit?: string; pageUrl?: string };
 
 export type ReviewResult = { pass: boolean; score: number; issues: string[]; at: string };
 
@@ -35,10 +39,9 @@ export type Pillar = { name: string; description: string; weight: number };
 
 export type ManagerLog = { at: string; ok: boolean; message: string; postId?: string };
 
-export type ManagerData = {
-  kind: "manager";
+/** 單一平台（FB 或 IG）的經營計畫 */
+export type ChannelPlan = {
   enabled: boolean;
-  platforms: Platform[];
   days: number[];
   times: string[];
   pillars: Pillar[];
@@ -46,12 +49,27 @@ export type ManagerData = {
   notes: string;
   /** 最近一次成效分析得到的洞察，會餵給產文 */
   learnings: string;
+};
+
+export type ManagerData = {
+  kind: "manager";
+  enabled: boolean;
+  /** FB、IG 分開經營 */
+  channels?: Record<Platform, ChannelPlan>;
   lastReportAt?: string;
   logs: ManagerLog[];
+  // 舊版（FB、IG 同一套設定）的欄位，讀取時會轉成 channels
+  platforms?: Platform[];
+  days?: number[];
+  times?: string[];
+  pillars?: Pillar[];
+  notes?: string;
+  learnings?: string;
 };
 
 export type ReportData = {
   kind: "report";
+  platform?: Platform;
   periodStart: string;
   periodEnd: string;
   summary: string;
