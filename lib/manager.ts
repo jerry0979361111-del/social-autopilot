@@ -1,4 +1,5 @@
-import { analyzePerformance, generateImage, generateText, reviewCaption } from "./ai";
+import { analyzePerformance, generateText, reviewCaption } from "./ai";
+import { designPostImage } from "./design";
 import { fetchMetrics } from "./meta";
 import {
   createRecord,
@@ -122,7 +123,8 @@ export async function fillNextSlot(): Promise<string | null> {
       caption = review.revisedCaption;
       review = await reviewCaption(caption, recentTitles);
     }
-    const imageUrl = review.pass ? await generateImage(text.imagePrompt) : undefined;
+    // 文案定稿（通過審稿）後，才依文案與主題做圖
+    const imageUrl = review.pass ? await designPostImage({ caption, topic: `${pillar.name}：${text.title}` }) : undefined;
     const rec = await createRecord<PostData>({
       title: text.title,
       status: review.pass ? "已排程" : "草稿",

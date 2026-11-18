@@ -1,7 +1,6 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { uploadImage } from "@/lib/ai";
 import { getConnection, saveConnection } from "@/lib/meta";
 import { archiveRecord, getRecord, updateRecord } from "@/lib/notion";
 import { back } from "@/lib/redirect";
@@ -34,18 +33,18 @@ export async function generatePost(form: FormData) {
     const topic = String(form.get("topic") ?? "").trim();
     if (!topic) throw new Error("請輸入主題");
     const platforms = platformsFrom(form);
-    let imageUrl: string | undefined;
+    let photo: Buffer | undefined;
     const file = form.get("image");
     if (file instanceof File && file.size > 0) {
       if (!/^image\/(jpeg|png)$/.test(file.type)) throw new Error("圖片請用 JPG 或 PNG");
-      imageUrl = await uploadImage(await file.arrayBuffer(), file.type);
+      photo = Buffer.from(await file.arrayBuffer());
     }
     const rec = await createDraft({
       topic,
       platforms,
       withImage: form.get("withImage") === "on",
       webSearch: form.get("webSearch") === "on",
-      imageUrl,
+      photo,
     });
     return `已產生草稿：「${rec.title}」，確認內容後可立即發布或排程`;
   });

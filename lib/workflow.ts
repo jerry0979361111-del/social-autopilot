@@ -1,4 +1,5 @@
-import { generateImage, generateText } from "./ai";
+import { generateText } from "./ai";
+import { designPostImage } from "./design";
 import { runManager } from "./manager";
 import { publishToPlatforms } from "./meta";
 import {
@@ -25,12 +26,15 @@ export async function createDraft(input: {
   platforms: Platform[];
   withImage: boolean;
   webSearch?: boolean;
-  imageUrl?: string;
+  /** 使用者上傳的照片：仍會套上品牌版型 */
+  photo?: Buffer;
   automationId?: string;
 }): Promise<NotionRecord<PostData>> {
   const text = await generateText(input.topic, input.platforms, { webSearch: input.webSearch });
-  let imageUrl = input.imageUrl;
-  if (!imageUrl && input.withImage) imageUrl = await generateImage(text.imagePrompt);
+  const imageUrl =
+    input.photo || input.withImage
+      ? await designPostImage({ caption: text.caption, topic: input.topic, photo: input.photo })
+      : undefined;
   return createRecord<PostData>({
     title: text.title,
     status: "草稿",

@@ -83,7 +83,7 @@ export default async function PostsPage({
             <label className="inline"><input type="checkbox" name="withImage" defaultChecked /> AI 生成配圖</label>
             <label className="inline"><input type="checkbox" name="webSearch" /> 上網搜尋最新資訊</label>
           </div>
-          <label htmlFor="image">或上傳自己的圖片（選填，JPG/PNG，有上傳就不會 AI 產圖）</label>
+          <label htmlFor="image">或上傳自己的實拍照片（選填，JPG/PNG；會直接用你的照片並套上品牌標題版型）</label>
           <input type="file" id="image" name="image" accept="image/jpeg,image/png" />
           <p>
             <SubmitButton className="primary" pendingText="AI 生成中，約 30～90 秒…">生成貼文</SubmitButton>

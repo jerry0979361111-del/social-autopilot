@@ -1,6 +1,5 @@
 import { put } from "@vercel/blob";
 import { getVercelOidcToken } from "@vercel/oidc";
-import sharp from "sharp";
 import { brand, env } from "./config";
 import type { Platform } from "./types";
 
@@ -22,7 +21,7 @@ async function openai(path: string, body: unknown): Promise<any> {
   return json;
 }
 
-export type GeneratedText = { title: string; caption: string; imagePrompt: string };
+export type GeneratedText = { title: string; caption: string };
 
 export async function generateText(
   topic: string,
@@ -42,11 +41,7 @@ export async function generateText(
     "不要捏造具體數字、價格或日期；若引用最新資訊，只寫你確定的事實。",
     "涉及投資、租金或報酬時，不得保證獲利或使用誇大字眼，只能用「可評估」「供參考」等中性說法。",
     "只輸出一個 JSON 物件，不要有其他文字，格式：",
-    '{"title":"給內部管理用的短標題（20 字內）","caption":"完整貼文文案（含 hashtag）","imagePrompt":"配圖的英文畫面描述"}',
-    "imagePrompt 的寫法（英文，60～120 字）：描述一張「真實拍攝的紀實照片」，必須與貼文內容直接相關，且一眼看得出是在澳洲（以墨爾本為主）。",
-    "請明確寫出具體地點與在地元素，例如：University of Melbourne 的砂岩建築與草地、Monash Clayton 校園、RMIT 城市校區、State Library Victoria 閱覽室、Swanston Street 上的綠色電車、Flinders Street 車站、CBD 巷弄咖啡廳、Southbank 河岸、Carlton 的維多利亞式排屋、看得到城市景觀的明亮學生公寓。",
-    "寫出畫面中的人與動作（例如 19 歲亞裔留學生在圖書館讀書、和同學在校園草地討論、拖著行李第一次走進宿舍、家長視訊、週末在市場買菜），以及光線、季節、時間（例如秋天午後的自然光）。",
-    "避免：插畫、3D、過度完美的棚拍、空無一人的抽象畫面、畫面中出現文字或招牌字樣。",
+    '{"title":"給內部管理用的短標題（20 字內）","caption":"完整貼文文案（含 hashtag）"}',
   ]
     .filter(Boolean)
     .join("\n");
@@ -76,28 +71,21 @@ export async function generateText(
   return {
     title: String(parsed.title || topic).slice(0, 80),
     caption: String(parsed.caption),
-    imagePrompt: String(parsed.imagePrompt || topic),
   };
 }
 
-/** 產生 1:1 配圖並上傳到 Vercel Blob，回傳公開網址（IG 需要能公開抓取的 JPEG）。 */
-export async function generateImage(imagePrompt: string): Promise<string> {
+/** 依畫面描述產生一張直式實景照片（不含任何文字），回傳原始圖檔。 */
+export async function generatePhoto(scene: string): Promise<Buffer> {
   const prompt = [
-    "Photorealistic documentary photograph, as if taken by a professional photographer on location in Australia.",
-    "Shot on a full-frame camera, 35mm lens, natural available light, candid moment, authentic everyday details,",
-    "realistic skin texture and imperfections, subtle film grain, true-to-life colours.",
-    "Not an illustration, not a 3D render, not CGI, no glossy stock-photo or AI look.",
-    `Scene: ${imagePrompt}`,
+    "Professional real estate and architectural photograph taken on location in Australia, magazine quality.",
+    "Full-frame camera, wide-angle lens with corrected verticals, natural light, true-to-life colours, crisp detail, realistic materials.",
+    "Looks like a real photo from a property listing or a travel feature, not an illustration, not a 3D render, not CGI.",
+    `Scene: ${scene}`,
     `Mood and colour grading: ${brand.style}.`,
-    "Square 1:1 composition for Instagram. No text, no letters, no signage text, no logos, no watermarks.",
-  ]
-    .filter(Boolean)
-    .join(" ");
-
-  const bytes = env.imageProvider() === "gateway" ? await gatewayImage(prompt) : await openaiImage(prompt);
-  // IG 只接受 JPEG，統一轉成 1080×1080 JPEG
-  const jpeg = await sharp(bytes).resize(1080, 1080, { fit: "cover" }).jpeg({ quality: 88 }).toBuffer();
-  return uploadImage(jpeg, "image/jpeg");
+    "Vertical portrait composition, keep the lower third calm (sky, lawn, water or plain facade) because a headline will be placed there.",
+    "No text, no letters, no signage text, no logos, no watermarks.",
+  ].join(" ");
+  return env.imageProvider() === "gateway" ? gatewayImage(prompt) : openaiImage(prompt);
 }
 
 // 依序嘗試；帳號沒有權限或模型已下架時，OpenAI 會回「does not exist」
@@ -111,7 +99,7 @@ async function openaiImage(prompt: string): Promise<Buffer> {
       const res = await openai("/images/generations", {
         model,
         prompt,
-        size: "1024x1024",
+        size: "1024x1536",
         quality: process.env.OPENAI_IMAGE_QUALITY || "high",
         output_format: "jpeg",
         n: 1,
@@ -176,7 +164,7 @@ export async function uploadImage(bytes: Buffer | ArrayBuffer, contentType: stri
   }
 }
 
-async function askJson<T>(instructions: string, input: string): Promise<T> {
+export async function askJson<T>(instructions: string, input: string): Promise<T> {
   const res = await openai("/responses", { model: env.textModel(), instructions, input });
   const text: string = (res.output ?? [])
     .filter((o: any) => o.type === "message")
