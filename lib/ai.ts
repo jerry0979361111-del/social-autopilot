@@ -42,7 +42,11 @@ export async function generateText(
     "不要捏造具體數字、價格或日期；若引用最新資訊，只寫你確定的事實。",
     "涉及投資、租金或報酬時，不得保證獲利或使用誇大字眼，只能用「可評估」「供參考」等中性說法。",
     "只輸出一個 JSON 物件，不要有其他文字，格式：",
-    '{"title":"給內部管理用的短標題（20 字內）","caption":"完整貼文文案（含 hashtag）","imagePrompt":"給 AI 畫配圖用的英文描述，描述畫面內容，不要在圖中放文字"}',
+    '{"title":"給內部管理用的短標題（20 字內）","caption":"完整貼文文案（含 hashtag）","imagePrompt":"配圖的英文畫面描述"}',
+    "imagePrompt 的寫法（英文，60～120 字）：描述一張「真實拍攝的紀實照片」，必須與貼文內容直接相關，且一眼看得出是在澳洲（以墨爾本為主）。",
+    "請明確寫出具體地點與在地元素，例如：University of Melbourne 的砂岩建築與草地、Monash Clayton 校園、RMIT 城市校區、State Library Victoria 閱覽室、Swanston Street 上的綠色電車、Flinders Street 車站、CBD 巷弄咖啡廳、Southbank 河岸、Carlton 的維多利亞式排屋、看得到城市景觀的明亮學生公寓。",
+    "寫出畫面中的人與動作（例如 19 歲亞裔留學生在圖書館讀書、和同學在校園草地討論、拖著行李第一次走進宿舍、家長視訊、週末在市場買菜），以及光線、季節、時間（例如秋天午後的自然光）。",
+    "避免：插畫、3D、過度完美的棚拍、空無一人的抽象畫面、畫面中出現文字或招牌字樣。",
   ]
     .filter(Boolean)
     .join("\n");
@@ -79,11 +83,13 @@ export async function generateText(
 /** 產生 1:1 配圖並上傳到 Vercel Blob，回傳公開網址（IG 需要能公開抓取的 JPEG）。 */
 export async function generateImage(imagePrompt: string): Promise<string> {
   const prompt = [
-    imagePrompt,
-    `Visual style: ${brand.style}.`,
-    `Color palette accents: ${brand.colorPrimary} and ${brand.colorSecondary}.`,
-    brand.nameEn ? `Brand: ${brand.nameEn}.` : "",
-    "Square social media image. No text, no letters, no logos, no watermarks.",
+    "Photorealistic documentary photograph, as if taken by a professional photographer on location in Australia.",
+    "Shot on a full-frame camera, 35mm lens, natural available light, candid moment, authentic everyday details,",
+    "realistic skin texture and imperfections, subtle film grain, true-to-life colours.",
+    "Not an illustration, not a 3D render, not CGI, no glossy stock-photo or AI look.",
+    `Scene: ${imagePrompt}`,
+    `Mood and colour grading: ${brand.style}.`,
+    "Square 1:1 composition for Instagram. No text, no letters, no signage text, no logos, no watermarks.",
   ]
     .filter(Boolean)
     .join(" ");
@@ -106,7 +112,7 @@ async function openaiImage(prompt: string): Promise<Buffer> {
         model,
         prompt,
         size: "1024x1024",
-        quality: "medium",
+        quality: process.env.OPENAI_IMAGE_QUALITY || "high",
         output_format: "jpeg",
         n: 1,
       });
