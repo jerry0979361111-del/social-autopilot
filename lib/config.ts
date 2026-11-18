@@ -24,6 +24,7 @@ export const env = {
 
 export const brand = {
   name: process.env.BRAND_NAME || "我的品牌",
+  slogan: process.env.BRAND_SLOGAN || "",
   nameEn: process.env.BRAND_NAME_EN || "",
   colorPrimary: process.env.BRAND_COLOR_PRIMARY || "#1B3A5C",
   colorSecondary: process.env.BRAND_COLOR_SECONDARY || "#F2A65A",

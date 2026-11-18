@@ -1,9 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { fillNextSlot, getManager, runWeeklyReport, saveManager } from "@/lib/manager";
+import { CHANNEL_LABEL, fillNextSlot, getManager, runWeeklyReport, saveManager } from "@/lib/manager";
 import { back } from "@/lib/redirect";
-import type { Pillar, Platform } from "@/lib/types";
+import type { ChannelPlan, Pillar, Platform } from "@/lib/types";
 
 const PATH = "/manager";
 
@@ -35,33 +35,38 @@ function parsePillars(text: string): Pillar[] {
   return pillars;
 }
 
+function parseChannel(form: FormData, p: Platform): ChannelPlan {
+  const enabled = form.get(`${p}_enabled`) === "on";
+  const days = form.getAll(`${p}_days`).map(Number).filter((d) => d >= 0 && d <= 6);
+  const times = String(form.get(`${p}_times`) ?? "")
+    .split(/[,，\s]+/)
+    .filter(Boolean)
+    .map((t) => {
+      const x = /^(\d{1,2}):(\d{2})$/.exec(t);
+      if (!x || Number(x[1]) > 23 || Number(x[2]) > 59) throw new Error(`${CHANNEL_LABEL[p]} 時間格式不正確：${t}`);
+      return `${x[1].padStart(2, "0")}:${x[2]}`;
+    });
+  if (enabled && (days.length === 0 || times.length === 0))
+    throw new Error(`${CHANNEL_LABEL[p]} 請至少選一天、填一個時間`);
+  return {
+    enabled,
+    days,
+    times: [...new Set(times)].sort(),
+    pillars: parsePillars(String(form.get(`${p}_pillars`) ?? "")),
+    notes: String(form.get(`${p}_notes`) ?? "").trim(),
+    learnings: String(form.get(`${p}_learnings`) ?? ""),
+  };
+}
+
 export async function saveSettings(form: FormData) {
   await run(async () => {
     const m = await getManager();
-    const platforms = form.getAll("platforms").map(String).filter((p): p is Platform => p === "fb" || p === "ig");
-    if (platforms.length === 0) throw new Error("請至少選一個平台");
-    const days = form.getAll("days").map(Number).filter((d) => d >= 0 && d <= 6);
-    const times = String(form.get("times") ?? "")
-      .split(/[,，\s]+/)
-      .filter(Boolean)
-      .map((t) => {
-        const x = /^(\d{1,2}):(\d{2})$/.exec(t);
-        if (!x || Number(x[1]) > 23 || Number(x[2]) > 59) throw new Error(`時間格式不正確：${t}`);
-        return `${x[1].padStart(2, "0")}:${x[2]}`;
-      });
-    if (days.length === 0 || times.length === 0) throw new Error("請至少選一天、填一個時間");
-    await saveManager({
-      ...m,
-      enabled: form.get("enabled") === "on",
-      platforms,
-      days,
-      times: [...new Set(times)].sort(),
-      pillars: parsePillars(String(form.get("pillars") ?? "")),
-      notes: String(form.get("notes") ?? "").trim(),
-    });
-    return form.get("enabled") === "on"
-      ? "已儲存並啟用。之後每次 cron 會自動補齊未來 7 天的貼文"
-      : "已儲存（目前為停用）";
+    const channels = { fb: parseChannel(form, "fb"), ig: parseChannel(form, "ig") };
+    const enabled = form.get("enabled") === "on";
+    // 舊版欄位不再使用
+    const { platforms, days, times, pillars, notes, learnings, ...rest } = m;
+    await saveManager({ ...rest, enabled, channels });
+    return enabled ? "已儲存並啟用。之後每次 cron 會自動補齊 FB、IG 未來 7 天的貼文" : "已儲存（目前為停用）";
   });
 }
 

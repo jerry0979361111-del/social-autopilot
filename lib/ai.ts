@@ -24,16 +24,17 @@ async function openai(path: string, body: unknown): Promise<any> {
 // FB 與 IG 分開經營：受眾行為不同，文案寫法也不同
 const CHANNEL_STYLE: Record<Platform, string[]> = {
   fb: [
-    "這篇只發 Facebook。FB 上的家長會花時間讀長文、留言討論、分享給其他家長。",
-    "選題：先上網搜尋最近 14 天澳洲（尤其墨爾本）房市、租屋、留學、簽證與移民政策的新聞，以及家長社團、論壇正在熱烈討論的話題，挑討論度最高、和留學生家長最相關的一個切入；找不到合適的新聞時，改寫家長最常問的實用問題。",
-    "寫法：開頭兩行就點出新聞事件或家長痛點（FB 只顯示前兩三行）→ 用「▍」當小標分 2～4 段解讀「這對留學生家庭代表什麼、該怎麼準備」→ 結尾拋出一個具體問題鼓勵家長留言分享經驗 → 最後一行列出參考資料來源的媒體或機構名稱。",
+    "這篇只發 Facebook。FB 上的讀者會花時間讀完整解讀、在留言區討論、分享給其他家人朋友。",
+    "依主題選最合適的形式：新聞與市場分析、迷思破解、列點知識文（5～10 點）、二選一或情境討論、實用檢查清單。",
+    "寫法：開頭兩行就點出新聞事件或讀者在意的問題（FB 只顯示前兩三行）→ 用「▍」當小標分 2～4 段解讀「這對留學家庭或台灣買家代表什麼、該怎麼準備」→ 區分已確認的事實、估算與觀點 → 結尾只問一個具體、容易回答的問題（例如「你會選 A 還是 B？為什麼？」）→ 最後一行寫「資料來源：媒體或機構名稱（日期）」。",
+    "CTA 依目標選一個：邀請留言討論、分享給需要的家人，或有具體需求時私訊關鍵字（例如私訊「墨爾本」「留學置產」），不要每篇都要求私訊。",
     "長度 300～600 字，表情符號最多 3 個，hashtag 0～3 個。",
   ],
   ig: [
-    "這篇只發 Instagram。IG 上的人快速滑動、看圖為主，好內容會被收藏和轉傳。",
-    "選題：可上網搜尋近期熱門話題，但以「看完就實用、值得收藏」的常青內容為主，例如墨爾本各區生活感、租屋清單、預算規劃、校園周邊、居住空間。",
-    "寫法：第一行是 20 字內的強烈開場（問題、反差或數字感，但不可捏造數字）→ 3～5 個短段落或條列，每段 1～2 行 → 結尾呼籲「收藏起來」或「分享給正在準備留學的家長」，並引導私訊。",
-    "長度 120～250 字，可適度使用表情符號，最後換行放 10～15 個 hashtag，中英混合（例如 #墨爾本 #澳洲留學 #留學生家長 #MelbourneLiving #Melbourne）。",
+    "這篇只發 Instagram。IG 的人快速滑動、看圖為主，好內容會被收藏和轉傳。",
+    "依主題選最合適的形式：列點文（預設，5～10 點）、二選一對比、迷思破解（迷思 vs 事實）、情境分析、知識測驗、趨勢重點整理。",
+    "寫法：第一行是 20 字內、清楚具體的問題型標題（例如「孩子去墨爾本留學，買房該選哪裡？」），不要用籠統的介紹型標題 → 列點或短段落，每點 1～2 行 → 必要時註明資料來源與日期 → 只問一個容易回答的互動問題 → 一個 CTA（收藏、分享給正在準備留學的家長，或私訊關鍵字）。",
+    "長度 120～250 字，可適度使用表情符號，最後換行放 10～15 個 hashtag，中英混合（例如 #澳洲美家 #墨爾本 #澳洲留學 #留學生家長 #澳洲買房 #Melbourne）。",
   ],
 };
 
@@ -255,4 +256,87 @@ export async function analyzePerformance(
   const input = JSON.stringify({ pillars, posts: rows });
   const r = await askJson<Analysis>(instructions, input);
   return { summary: String(r.summary ?? ""), learnings: String(r.learnings ?? ""), weights: r.weights ?? {} };
+}
+
+export type TrendTopic = {
+  title: string;
+  summary: string;
+  source: string;
+  date: string;
+  /** 為什麼最近大家在討論 */
+  why: string;
+  /** 建議切入角度 */
+  angle: string;
+};
+
+/**
+ * 選題研究：上網搜尋近兩週澳洲房市、留學、簽證的新聞與討論，依熱門程度排序。
+ * 已經寫過的主題交給呼叫端排除。
+ */
+export async function researchTrends(channel: Platform, covered: string[]): Promise<TrendTopic[]> {
+  const today = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
+  const instructions = [
+    `你是「${brand.name}」的社群選題研究員。今天是 ${today}（台北時間）。`,
+    brand.audience ? `受眾：${brand.audience}` : "",
+    "請用網路搜尋，找出「最近 14 天內」與以下領域相關、討論度最高的新聞與話題：",
+    "澳洲房市（房價、租金、供給、利率、外國買家與 FIRB 規定）、澳洲留學（學生簽證、留學生人數上限、學費、學生住宿）、簽證與移民政策（畢業工作簽、技術移民）。",
+    "以墨爾本為優先，其次是全澳洲；可參考澳洲主流媒體、政府公告、房地產研究機構，以及台灣媒體與家長社群的相關報導。",
+    "依「熱門程度」排序：多家媒體報導、社群大量討論、政策剛公布或即將生效的排前面。",
+    "只列真的在最近 14 天內發生或被大量討論的事，不要編造；日期與來源要具體。",
+    `${channel === "fb" ? "這是給 Facebook 的選題，偏好適合深入解讀與留言討論的新聞。" : "這是給 Instagram 的選題，偏好能整理成清單、比較或一圖看懂的話題。"}`,
+    "以下是我們最近已經做過的主題，請排除相同或高度相似的題目：",
+    covered.slice(0, 40).map((t) => `- ${t}`).join("\n") || "（無）",
+    "列出 6～8 個，只輸出 JSON：",
+    '{"topics":[{"title":"議題標題","summary":"一兩句重點","source":"媒體或機構名稱","date":"YYYY-MM-DD","why":"為什麼最近熱門","angle":"給台灣留學生家長或買家的切入角度"}]}',
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const res = await openai("/responses", {
+    model: env.textModel(),
+    instructions,
+    input: "請開始搜尋並整理。",
+    tools: [{ type: "web_search" }],
+  });
+  const text: string = (res.output ?? [])
+    .filter((o: any) => o.type === "message")
+    .flatMap((o: any) => o.content ?? [])
+    .filter((c: any) => c.type === "output_text")
+    .map((c: any) => c.text)
+    .join("");
+  const match = text.match(/\{[\s\S]*\}/);
+  if (!match) return [];
+  try {
+    const topics = JSON.parse(match[0]).topics;
+    return Array.isArray(topics)
+      ? topics
+          .filter((t: any) => t?.title)
+          .map((t: any) => ({
+            title: String(t.title),
+            summary: String(t.summary ?? ""),
+            source: String(t.source ?? ""),
+            date: String(t.date ?? ""),
+            why: String(t.why ?? ""),
+            angle: String(t.angle ?? ""),
+          }))
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+/** 兩段中文標題是否在講同一件事（字元二元組重疊率），用來避免重複選題 */
+export function similarTopic(a: string, b: string): boolean {
+  const grams = (s: string) => {
+    const t = s.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+    const g = new Set<string>();
+    for (let i = 0; i < t.length - 1; i++) g.add(t.slice(i, i + 2));
+    return g;
+  };
+  const A = grams(a);
+  const B = grams(b);
+  if (A.size === 0 || B.size === 0) return false;
+  let inter = 0;
+  for (const x of A) if (B.has(x)) inter++;
+  return inter / Math.min(A.size, B.size) >= 0.45;
 }

@@ -1,4 +1,4 @@
-import { analyzePerformance, generateText, reviewCaption } from "./ai";
+import { analyzePerformance, generateText, researchTrends, reviewCaption, similarTopic, type TrendTopic } from "./ai";
 import { designPostImage } from "./design";
 import { fetchMetrics } from "./meta";
 import {
@@ -136,11 +136,39 @@ export async function fillNextSlot(): Promise<string | null> {
 
   const channelPosts = posts.filter((p) => p.data.origin === "manager" && p.data.platforms.includes(platform));
   const recentTitles = posts.slice(0, 20).map((p) => p.title);
-  const pillar = pickPillar(plan.pillars.length ? plan.pillars : DEFAULT_PILLARS[platform], channelPosts.map((p) => p.data.pillar ?? ""));
+  // 已做過的主題：近 60 天所有貼文（FB、IG 都算），避免重複
+  const since = Date.now() - 60 * 24 * 3600_000;
+  const covered = posts
+    .filter((p) => new Date(p.createdTime).getTime() >= since)
+    .flatMap((p) => [p.title, p.data.trend?.title ?? ""])
+    .filter(Boolean);
+
+  // 1) 先找近兩週最熱門、而且還沒做過的新聞議題
+  let trend: TrendTopic | undefined;
+  try {
+    const trends = await researchTrends(platform, covered);
+    trend = trends.find((t) => !covered.some((c) => similarTopic(c, t.title)));
+  } catch {
+    trend = undefined;
+  }
+
+  // 2) 熱門議題都做過了（或搜尋失敗），才改用內容支柱選常青主題
+  const pillar = trend
+    ? { name: "熱門議題", description: trend.title, weight: 1 }
+    : pickPillar(plan.pillars.length ? plan.pillars : DEFAULT_PILLARS[platform], channelPosts.map((p) => p.data.pillar ?? ""));
 
   const topic = [
-    `內容支柱「${pillar.name}」：${pillar.description}`,
-    "請自己挑一個具體、目標受眾會想點開的子題，不要與以下近期貼文重複：",
+    trend
+      ? [
+          `本篇主題是近兩週的熱門議題：「${trend.title}」`,
+          `重點：${trend.summary}`,
+          `來源：${trend.source}（${trend.date}）`,
+          `為什麼熱門：${trend.why}`,
+          `建議切入角度：${trend.angle}`,
+          "請再上網查證這則新聞的最新內容與細節，以查證後的事實為準，文中註明資料來源與日期。",
+        ].join("\n")
+      : `內容支柱「${pillar.name}」：${pillar.description}\n請自己挑一個具體、目標受眾會想點開的子題。`,
+    "不要與以下近期貼文重複：",
     recentTitles.map((t) => `- ${t}`).join("\n") || "（無）",
     plan.learnings ? `${label} 近期成效洞察（請參考）：\n${plan.learnings}` : "",
     plan.notes ? `經營者對 ${label} 的補充指示：\n${plan.notes}` : "",
@@ -178,11 +206,12 @@ export async function fillNextSlot(): Promise<string | null> {
         origin: "manager",
         pillar: pillar.name,
         managerSlot: slotKey(platform, slot),
+        trend: trend ? { title: trend.title, source: trend.source, date: trend.date } : undefined,
         review: { pass: review.pass, score: review.score, issues: review.issues, at: new Date().toISOString() },
       },
     });
     const msg = review.pass
-      ? `${label}：已排程「${text.title}」（${pillar.name}，審稿 ${review.score} 分）`
+      ? `${label}：已排程「${text.title}」（${trend ? `熱門議題：${trend.title}` : pillar.name}，審稿 ${review.score} 分）`
       : `${label}：「${text.title}」未通過審稿，留在草稿未發布：${review.issues.join("；")}`;
     await addLog(msg, review.pass, rec.id);
     return msg;

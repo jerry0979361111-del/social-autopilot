@@ -19,6 +19,8 @@ export type PostData = {
   review?: ReviewResult;
   metrics?: Partial<Record<Platform, PostMetrics>>;
   photo?: PhotoInfo;
+  /** 由熱門新聞選題時的來源議題 */
+  trend?: { title: string; source: string; date: string };
 };
 
 /** 配圖照片的來源（真實照片需要標示作者與授權時用） */

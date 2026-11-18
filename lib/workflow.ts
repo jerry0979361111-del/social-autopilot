@@ -31,7 +31,7 @@ export async function createDraft(input: {
   automationId?: string;
 }): Promise<NotionRecord<PostData>> {
   const text = await generateText(input.topic, input.platforms, { webSearch: input.webSearch });
-  const imageUrl =
+  const design =
     input.photo || input.withImage
       ? await designPostImage({ caption: text.caption, topic: input.topic, photo: input.photo })
       : undefined;
@@ -43,7 +43,8 @@ export async function createDraft(input: {
       topic: input.topic,
       platforms: input.platforms,
       caption: text.caption,
-      imageUrl,
+      imageUrl: design?.url,
+      photo: design?.photo,
       automationId: input.automationId,
     },
   });
