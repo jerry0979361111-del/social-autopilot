@@ -1,4 +1,6 @@
 import { put } from "@vercel/blob";
+import { getVercelOidcToken } from "@vercel/oidc";
+import sharp from "sharp";
 import { brand, env } from "./config";
 import type { Platform } from "./types";
 
@@ -86,6 +88,13 @@ export async function generateImage(imagePrompt: string): Promise<string> {
     .filter(Boolean)
     .join(" ");
 
+  const bytes = env.imageProvider() === "gateway" ? await gatewayImage(prompt) : await openaiImage(prompt);
+  // IG 只接受 JPEG，統一轉成 1080×1080 JPEG
+  const jpeg = await sharp(bytes).resize(1080, 1080, { fit: "cover" }).jpeg({ quality: 88 }).toBuffer();
+  return uploadImage(jpeg, "image/jpeg");
+}
+
+async function openaiImage(prompt: string): Promise<Buffer> {
   const res = await openai("/images/generations", {
     model: env.imageModel(),
     prompt,
@@ -97,7 +106,42 @@ export async function generateImage(imagePrompt: string): Promise<string> {
   });
   const b64 = res.data?.[0]?.b64_json;
   if (!b64) throw new Error("OpenAI 沒有回傳圖片");
-  return uploadImage(Buffer.from(b64, "base64"), "image/jpeg");
+  return Buffer.from(b64, "base64");
+}
+
+/** 透過 Vercel AI Gateway 產圖：用部署本身的 OIDC 身分驗證，不需要另外的 API Key。 */
+async function gatewayImage(prompt: string): Promise<Buffer> {
+  let token = process.env.AI_GATEWAY_API_KEY;
+  if (!token) {
+    try {
+      token = await getVercelOidcToken();
+    } catch {
+      throw new Error("無法取得 Vercel AI Gateway 授權（OIDC），請確認網站部署在 Vercel 上");
+    }
+  }
+  const res = await fetch("https://ai-gateway.vercel.sh/v1/images/generations", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: env.gatewayImageModel(),
+      prompt,
+      n: 1,
+      response_format: "b64_json",
+      providerOptions: { blackForestLabs: { outputFormat: "jpeg" } },
+    }),
+    cache: "no-store",
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const msg: string = json?.error?.message ?? json?.message ?? res.statusText;
+    const hint = /credit|balance|billing|payment|quota/i.test(msg)
+      ? "（Vercel AI Gateway 額度不足：到 Vercel → AI Gateway 查看或加值）"
+      : "";
+    throw new Error(`AI Gateway 產圖錯誤 ${res.status}: ${msg}${hint}`);
+  }
+  const b64 = json.data?.[0]?.b64_json;
+  if (!b64) throw new Error("AI Gateway 沒有回傳圖片");
+  return Buffer.from(b64, "base64");
 }
 
 export async function uploadImage(bytes: Buffer | ArrayBuffer, contentType: string): Promise<string> {

@@ -17,6 +17,9 @@ export const env = {
   appPassword: () => process.env.APP_PASSWORD || "",
   textModel: () => process.env.OPENAI_TEXT_MODEL || "gpt-4.1-mini",
   imageModel: () => process.env.OPENAI_IMAGE_MODEL || "gpt-image-1",
+  // "gateway"：用 Vercel AI Gateway 產圖（免 OpenAI 組織驗證）；"openai"：直接呼叫 OpenAI
+  imageProvider: () => (process.env.IMAGE_PROVIDER === "openai" ? "openai" : "gateway"),
+  gatewayImageModel: () => process.env.GATEWAY_IMAGE_MODEL || "bfl/flux-2-pro",
 };
 
 export const brand = {
