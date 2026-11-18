@@ -94,19 +94,34 @@ export async function generateImage(imagePrompt: string): Promise<string> {
   return uploadImage(jpeg, "image/jpeg");
 }
 
+// 依序嘗試；帳號沒有權限或模型已下架時，OpenAI 會回「does not exist」
+const OPENAI_IMAGE_MODELS = ["gpt-image-2", "gpt-image-1.5", "gpt-image-1", "gpt-image-1-mini"];
+
 async function openaiImage(prompt: string): Promise<Buffer> {
-  const res = await openai("/images/generations", {
-    model: env.imageModel(),
-    prompt,
-    size: "1024x1024",
-    quality: "medium",
-    output_format: "jpeg",
-    output_compression: 85,
-    n: 1,
-  });
-  const b64 = res.data?.[0]?.b64_json;
-  if (!b64) throw new Error("OpenAI 沒有回傳圖片");
-  return Buffer.from(b64, "base64");
+  const models = [...new Set([process.env.OPENAI_IMAGE_MODEL, ...OPENAI_IMAGE_MODELS].filter(Boolean) as string[])];
+  const missing: string[] = [];
+  for (const model of models) {
+    try {
+      const res = await openai("/images/generations", {
+        model,
+        prompt,
+        size: "1024x1024",
+        quality: "medium",
+        output_format: "jpeg",
+        n: 1,
+      });
+      const b64 = res.data?.[0]?.b64_json;
+      if (!b64) throw new Error("OpenAI 沒有回傳圖片");
+      return Buffer.from(b64, "base64");
+    } catch (e: any) {
+      const msg = String(e?.message ?? e);
+      if (!/does not exist|model_not_found|404/i.test(msg)) throw e;
+      missing.push(model);
+    }
+  }
+  throw new Error(
+    `OpenAI 帳號目前無法使用任何圖片模型（試過 ${missing.join("、")}）。剛完成組織驗證的話請等 15～30 分鐘；仍不行請建立新的 API Key 換到 Vercel`,
+  );
 }
 
 /** 透過 Vercel AI Gateway 產圖：用部署本身的 OIDC 身分驗證，不需要另外的 API Key。 */
