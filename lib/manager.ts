@@ -1,4 +1,12 @@
-import { analyzePerformance, generateText, researchTrends, reviewCaption, similarTopic, type TrendTopic } from "./ai";
+import {
+  analyzePerformance,
+  generateReelsScript,
+  generateText,
+  researchTrends,
+  reviewCaption,
+  similarTopic,
+  type TrendTopic,
+} from "./ai";
 import { designPostImage } from "./design";
 import { fetchMetrics } from "./meta";
 import {
@@ -10,7 +18,7 @@ import {
   type NotionRecord,
 } from "./notion";
 import { slotsBetween } from "./time";
-import type { ChannelPlan, ManagerData, Pillar, Platform, PostData, PostMetrics, ReportData } from "./types";
+import type { ChannelPlan, ManagerData, Pillar, Platform, PostData, PostMetrics, Reference, ReportData } from "./types";
 import { listPosts } from "./workflow";
 
 // AI 社群經理：FB、IG 分開經營。各自排內容企劃、產文、審稿、做圖，每週依各自成效調整方向。
@@ -41,7 +49,27 @@ const DEFAULT_CHANNELS: Record<Platform, ChannelPlan> = {
   ig: { enabled: true, days: [1, 3, 5], times: ["20:00"], pillars: DEFAULT_PILLARS.ig, notes: "", learnings: "" },
 };
 
-export const DEFAULT_MANAGER: ManagerData = { kind: "manager", enabled: false, channels: DEFAULT_CHANNELS, logs: [] };
+export const DEFAULT_REFERENCES: Reference[] = [
+  {
+    keywords: ["FIRB", "外國買家", "外國人", "海外買家", "外國投資", "foreign buyer", "foreign investment"],
+    url: "https://www.judgments.fedcourt.gov.au/judgments/Judgments/fca/single/2026/2026fca1424",
+    note: "澳洲聯邦法院 2026 年 FCA 1424 號判決（外國投資／FIRB 相關）",
+  },
+];
+
+export const DEFAULT_MANAGER: ManagerData = {
+  kind: "manager",
+  enabled: false,
+  channels: DEFAULT_CHANNELS,
+  references: DEFAULT_REFERENCES,
+  logs: [],
+};
+
+/** 主題文字提到關鍵字時，附上要參考的資料來源 */
+export function matchReferences(refs: Reference[], text: string): Reference[] {
+  const t = text.toLowerCase();
+  return refs.filter((r) => r.keywords.some((k) => k && t.includes(k.toLowerCase())));
+}
 
 /** 舊版設定（FB、IG 共用）轉成分開經營的格式 */
 export function channelsOf(m: ManagerData): Record<Platform, ChannelPlan> {
@@ -66,7 +94,7 @@ export async function getManagerRecord(): Promise<NotionRecord<ManagerData> | nu
 
 export async function getManager(): Promise<ManagerData> {
   const m = (await getManagerRecord())?.data ?? DEFAULT_MANAGER;
-  return { ...m, channels: channelsOf(m) };
+  return { ...m, channels: channelsOf(m), references: m.references ?? DEFAULT_REFERENCES };
 }
 
 export async function saveManager(data: ManagerData): Promise<void> {
@@ -175,9 +203,15 @@ export async function fillNextSlot(): Promise<string | null> {
   ]
     .filter(Boolean)
     .join("\n");
+  const refs = matchReferences(m.references ?? DEFAULT_REFERENCES, `${trend?.title ?? ""} ${trend?.summary ?? ""} ${pillar.description}`);
+  const topicWithRefs = refs.length
+    ? `${topic}\n本主題請務必參考並查證以下資料，內容與新聞報導不一致時以官方或法院資料為準，並在文末列出：\n${refs
+        .map((r) => `- ${r.note}：${r.url}`)
+        .join("\n")}`
+    : topic;
 
   try {
-    const text = await generateText(topic, [platform], { webSearch: true, channel: platform });
+    const text = await generateText(topicWithRefs, [platform], { webSearch: true, channel: platform });
     let caption = text.caption;
     let review = await reviewCaption(caption, recentTitles);
     if (!review.pass && review.revisedCaption) {
@@ -190,8 +224,12 @@ export async function fillNextSlot(): Promise<string | null> {
           caption,
           topic: `${pillar.name}：${text.title}`,
           avoidPhotoIds: posts.map((p) => p.data.photo?.id).filter(Boolean) as string[],
+          // IG 用輪播（封面＋內頁＋結尾互動頁），FB 用單張主視覺
+          carousel: platform === "ig",
         })
       : undefined;
+    const reelsScript =
+      review.pass && platform === "ig" ? await generateReelsScript(text.title, caption).catch(() => undefined) : undefined;
     const rec = await createRecord<PostData>({
       title: text.title,
       status: review.pass ? "已排程" : "草稿",
@@ -202,7 +240,9 @@ export async function fillNextSlot(): Promise<string | null> {
         platforms: [platform],
         caption,
         imageUrl: design?.url,
+        imageUrls: design?.urls,
         photo: design?.photo,
+        reelsScript,
         origin: "manager",
         pillar: pillar.name,
         managerSlot: slotKey(platform, slot),

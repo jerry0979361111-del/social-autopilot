@@ -124,6 +124,24 @@ export default async function PostsPage({
                   )}
                 </ul>
               )}
+              {d.imageUrls && d.imageUrls.length > 1 && (
+                <details>
+                  <summary>輪播 {d.imageUrls.length} 張</summary>
+                  <div style={{ display: "flex", gap: 6, overflowX: "auto", padding: "6px 0" }}>
+                    {d.imageUrls.map((u, i) => (
+                      <a key={i} href={u} target="_blank" rel="noreferrer">
+                        <img src={u} alt="" style={{ width: 120, height: 150, objectFit: "cover", borderRadius: 6 }} />
+                      </a>
+                    ))}
+                  </div>
+                </details>
+              )}
+              {d.reelsScript && (
+                <details>
+                  <summary>Reels 腳本（參考用，不會自動發布）</summary>
+                  <pre className="caption">{d.reelsScript}</pre>
+                </details>
+              )}
               {editable ? (
                 <details>
                   <summary>查看／編輯文案</summary>

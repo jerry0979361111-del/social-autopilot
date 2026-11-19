@@ -184,6 +184,12 @@ export default async function ManagerPage({
           <form action={saveSettings}>
             <label className="inline"><input type="checkbox" name="enabled" defaultChecked={m.enabled} /> 啟用 AI 社群經理（全自動發布）</label>
             {PLATFORMS.map((p) => <ChannelFields key={p} p={p} plan={channels[p]} />)}
+            <label>參考資料（主題提到關鍵字時，AI 會先查證這些來源並在文末列出；每行：關鍵字1,關鍵字2｜網址｜說明）</label>
+            <textarea
+              name="references"
+              style={{ minHeight: 80 }}
+              defaultValue={(m.references ?? []).map((r) => `${r.keywords.join(",")}｜${r.url}｜${r.note}`).join("\n")}
+            />
             <p><SubmitButton className="primary">儲存設定</SubmitButton></p>
           </form>
         </section>

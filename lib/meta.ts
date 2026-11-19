@@ -122,43 +122,69 @@ export async function completeLogin(code: string): Promise<MetaConnection> {
 
 // ---------- 發布 ----------
 
-async function publishFacebook(page: MetaPage, caption: string, imageUrl?: string): Promise<string> {
-  if (imageUrl) {
-    const r = await graph(`/${page.id}/photos`, { url: imageUrl, caption, access_token: page.token }, "POST");
+async function publishFacebook(page: MetaPage, caption: string, images: string[]): Promise<string> {
+  if (images.length === 1) {
+    const r = await graph(`/${page.id}/photos`, { url: images[0], caption, access_token: page.token }, "POST");
     return r.post_id ?? r.id;
+  }
+  if (images.length > 1) {
+    // 多張圖：先上傳成未發布的相片，再一起附在一則貼文上
+    const ids: string[] = [];
+    for (const url of images.slice(0, 10)) {
+      const r = await graph(`/${page.id}/photos`, { url, published: "false", access_token: page.token }, "POST");
+      ids.push(r.id);
+    }
+    const params: Record<string, string> = { message: caption, access_token: page.token };
+    ids.forEach((id, i) => (params[`attached_media[${i}]`] = JSON.stringify({ media_fbid: id })));
+    const r = await graph(`/${page.id}/feed`, params, "POST");
+    return r.id;
   }
   const r = await graph(`/${page.id}/feed`, { message: caption, access_token: page.token }, "POST");
   return r.id;
 }
 
-async function publishInstagram(page: MetaPage, caption: string, imageUrl?: string): Promise<string> {
-  if (!page.igId)
-    throw new Error("這個粉專沒有綁定 Instagram 商業／創作者帳號（請在 IG 設定中把帳號切成專業帳號並連結此粉專，再重新連接 Meta）");
-  if (!imageUrl) throw new Error("Instagram 貼文一定要有圖片");
-  const container = await graph(
-    `/${page.igId}/media`,
-    { image_url: imageUrl, caption, access_token: page.token },
-    "POST",
-  );
-  // 等 IG 處理完圖片再發布
+/** 等 IG 處理完容器（圖片下載與檢查）才能發布 */
+async function waitContainer(id: string, token: string) {
   for (let i = 0; i < 20; i++) {
-    const s = await graph(`/${container.id}`, { fields: "status_code", access_token: page.token });
-    if (s.status_code === "FINISHED") break;
+    const s = await graph(`/${id}`, { fields: "status_code", access_token: token });
+    if (s.status_code === "FINISHED") return;
     if (s.status_code === "ERROR" || s.status_code === "EXPIRED")
       throw new Error(`Instagram 處理圖片失敗（${s.status_code}），請確認圖片網址可公開存取`);
     await new Promise((r) => setTimeout(r, 3000));
   }
-  const r = await graph(
-    `/${page.igId}/media_publish`,
-    { creation_id: container.id, access_token: page.token },
-    "POST",
-  );
+}
+
+async function publishInstagram(page: MetaPage, caption: string, images: string[]): Promise<string> {
+  if (!page.igId)
+    throw new Error("這個粉專沒有綁定 Instagram 商業／創作者帳號（請在 IG 設定中把帳號切成專業帳號並連結此粉專，再重新連接 Meta）");
+  if (images.length === 0) throw new Error("Instagram 貼文一定要有圖片");
+  let containerId: string;
+  if (images.length === 1) {
+    containerId = (await graph(`/${page.igId}/media`, { image_url: images[0], caption, access_token: page.token }, "POST")).id;
+  } else {
+    // 輪播：每張先建子容器，再建輪播容器（最多 10 張）
+    const children: string[] = [];
+    for (const url of images.slice(0, 10)) {
+      const c = await graph(`/${page.igId}/media`, { image_url: url, is_carousel_item: "true", access_token: page.token }, "POST");
+      await waitContainer(c.id, page.token);
+      children.push(c.id);
+    }
+    containerId = (
+      await graph(
+        `/${page.igId}/media`,
+        { media_type: "CAROUSEL", children: children.join(","), caption, access_token: page.token },
+        "POST",
+      )
+    ).id;
+  }
+  await waitContainer(containerId, page.token);
+  const r = await graph(`/${page.igId}/media_publish`, { creation_id: containerId, access_token: page.token }, "POST");
   return r.id;
 }
 
 /** 發到指定平台；每個平台獨立成功或失敗。 */
 export async function publishToPlatforms(
-  post: Pick<PostData, "caption" | "imageUrl" | "platforms">,
+  post: Pick<PostData, "caption" | "imageUrl" | "imageUrls" | "platforms">,
   only?: Platform[],
 ): Promise<Partial<Record<Platform, PublishResult>>> {
   const page = selectedPage(await getConnection());
@@ -168,10 +194,9 @@ export async function publishToPlatforms(
     const at = new Date().toISOString();
     try {
       if (!page) throw new Error("尚未連接 Meta 帳號，請到 /posts 按「連接 Meta 帳號」");
+      const images = post.imageUrls?.length ? post.imageUrls : post.imageUrl ? [post.imageUrl] : [];
       const id =
-        p === "fb"
-          ? await publishFacebook(page, post.caption, post.imageUrl)
-          : await publishInstagram(page, post.caption, post.imageUrl);
+        p === "fb" ? await publishFacebook(page, post.caption, images) : await publishInstagram(page, post.caption, images);
       results[p] = { ok: true, id, at };
     } catch (e: any) {
       results[p] = { ok: false, error: String(e?.message ?? e), at };

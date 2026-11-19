@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { CHANNEL_LABEL, fillNextSlot, getManager, runWeeklyReport, saveManager } from "@/lib/manager";
 import { back } from "@/lib/redirect";
-import type { ChannelPlan, Pillar, Platform } from "@/lib/types";
+import type { ChannelPlan, Pillar, Platform, Reference } from "@/lib/types";
 
 const PATH = "/manager";
 
@@ -63,9 +63,18 @@ export async function saveSettings(form: FormData) {
     const m = await getManager();
     const channels = { fb: parseChannel(form, "fb"), ig: parseChannel(form, "ig") };
     const enabled = form.get("enabled") === "on";
+    const references: Reference[] = String(form.get("references") ?? "")
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .map((l) => {
+        const [kw = "", url = "", ...note] = l.split(/[｜|]/).map((x) => x.trim());
+        return { keywords: kw.split(/[,，、]/).map((k) => k.trim()).filter(Boolean), url, note: note.join(" ") || url };
+      })
+      .filter((r) => r.keywords.length && /^https?:\/\//.test(r.url));
     // 舊版欄位不再使用
     const { platforms, days, times, pillars, notes, learnings, ...rest } = m;
-    await saveManager({ ...rest, enabled, channels });
+    await saveManager({ ...rest, enabled, channels, references });
     return enabled ? "已儲存並啟用。之後每次 cron 會自動補齊 FB、IG 未來 7 天的貼文" : "已儲存（目前為停用）";
   });
 }

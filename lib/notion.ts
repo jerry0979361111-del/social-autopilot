@@ -10,6 +10,7 @@ export const META_TITLE = "[系統] Meta 連線設定";
 export const AUTOMATION_PREFIX = "[自動化] ";
 export const MANAGER_TITLE = "[系統] AI 社群經理設定";
 export const REPORT_PREFIX = "[成效報告] ";
+export const LIBRARY_PREFIX = "[照片庫] ";
 
 export const STATUSES = ["草稿", "已排程", "發布中", "已發布", "發布失敗"] as const;
 export type Status = (typeof STATUSES)[number];
@@ -135,4 +136,5 @@ export const titleIsReserved = (title: string) =>
   title === META_TITLE ||
   title === MANAGER_TITLE ||
   title.startsWith(AUTOMATION_PREFIX) ||
-  title.startsWith(REPORT_PREFIX);
+  title.startsWith(REPORT_PREFIX) ||
+  title.startsWith(LIBRARY_PREFIX);

@@ -340,3 +340,24 @@ export function similarTopic(a: string, b: string): boolean {
   for (const x of A) if (B.has(x)) inter++;
   return inter / Math.min(A.size, B.size) >= 0.45;
 }
+
+/** Reels 短影片腳本（給團隊參考，不會自動發布） */
+export async function generateReelsScript(title: string, caption: string): Promise<string> {
+  const instructions = [
+    `你是「${brand.name}」的短影音企劃。依據這篇 IG 貼文，寫一支 30～45 秒的 Reels 拍攝腳本，讓團隊可以直接照著拍。`,
+    "格式（純文字、繁體中文）：",
+    "【開場 0–3 秒】一句問題、反差或關鍵結論（畫面＋口白＋字幕）",
+    "【分鏡】4～6 段，每段寫：秒數、畫面（建議拍什麼：建案現場、街景、看房、白板說明等）、口白、字幕",
+    "【結尾】只放一個行動呼籲（留言、分享或私訊關鍵字）",
+    "【拍攝建議】2～3 點（場地、運鏡、需要的素材）",
+    "不得捏造數字、客戶或成交；涉及法規時提醒以官方最新資訊為準。",
+  ].join("\n");
+  const res = await openai("/responses", { model: env.textModel(), instructions, input: `標題：${title}\n\n貼文：\n${caption}` });
+  return (res.output ?? [])
+    .filter((o: any) => o.type === "message")
+    .flatMap((o: any) => o.content ?? [])
+    .filter((c: any) => c.type === "output_text")
+    .map((c: any) => c.text)
+    .join("")
+    .trim();
+}

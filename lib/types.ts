@@ -19,12 +19,16 @@ export type PostData = {
   review?: ReviewResult;
   metrics?: Partial<Record<Platform, PostMetrics>>;
   photo?: PhotoInfo;
+  /** IG 輪播：全部圖片（第一張即 imageUrl） */
+  imageUrls?: string[];
+  /** 給團隊參考的 Reels 腳本（不會自動發布） */
+  reelsScript?: string;
   /** 由熱門新聞選題時的來源議題 */
   trend?: { title: string; source: string; date: string };
 };
 
 /** 配圖照片的來源（真實照片需要標示作者與授權時用） */
-export type PhotoInfo = { source: "upload" | "pexels" | "wikimedia" | "ai"; id?: string; credit?: string; pageUrl?: string };
+export type PhotoInfo = { source: "upload" | "library" | "pexels" | "wikimedia" | "ai"; id?: string; credit?: string; pageUrl?: string };
 
 export type ReviewResult = { pass: boolean; score: number; issues: string[]; at: string };
 
@@ -40,6 +44,8 @@ export type PostMetrics = {
 export type Pillar = { name: string; description: string; weight: number };
 
 export type ManagerLog = { at: string; ok: boolean; message: string; postId?: string };
+
+export type Reference = { keywords: string[]; url: string; note: string };
 
 /** 單一平台（FB 或 IG）的經營計畫 */
 export type ChannelPlan = {
@@ -58,6 +64,8 @@ export type ManagerData = {
   enabled: boolean;
   /** FB、IG 分開經營 */
   channels?: Record<Platform, ChannelPlan>;
+  /** 特定主題要參考的資料來源（例如 FIRB 判決） */
+  references?: Reference[];
   lastReportAt?: string;
   logs: ManagerLog[];
   // 舊版（FB、IG 同一套設定）的欄位，讀取時會轉成 channels

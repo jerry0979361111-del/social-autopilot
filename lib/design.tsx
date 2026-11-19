@@ -4,6 +4,7 @@ import { ImageResponse } from "next/og";
 import sharp from "sharp";
 import { askJson, generatePhoto, uploadImage } from "./ai";
 import { brand } from "./config";
+import { listLibrary } from "./library";
 import type { PhotoInfo } from "./types";
 
 // 貼文配圖：先依「已定稿的文案」做美術企劃，再找真實照片（圖庫），最後套上品牌版型（標題、品牌列、Logo）。
@@ -23,9 +24,23 @@ export type ArtDirection = {
   scene: string;
   /** 找真實照片用的英文關鍵字，由具體到一般 */
   queries: string[];
+  /** 從照片庫選中的照片 */
+  libraryId?: string;
+  /** 輪播內頁（每張一個重點） */
+  slides?: { title: string; body: string }[];
+  /** 輪播最後一張：互動問題與 CTA */
+  question?: string;
+  cta?: string;
 };
 
-export async function artDirect(caption: string, topic: string): Promise<ArtDirection> {
+export type LibraryChoice = { id: string; label: string };
+
+export async function artDirect(
+  caption: string,
+  topic: string,
+  opts: { library?: LibraryChoice[]; carousel?: boolean } = {},
+): Promise<ArtDirection> {
+  const library = opts.library ?? [];
   const instructions = [
     `你是「${brand.name}」的社群美術總監，品牌經營澳洲（以墨爾本為主）房產，主要受眾是留學生家長。`,
     "請讀完已定稿的貼文文案，為它規劃一張社群主視覺。",
@@ -43,8 +58,26 @@ export async function artDirect(caption: string, topic: string): Promise<ArtDire
     "queries：3～4 組到圖庫找「真實照片」用的英文關鍵字，由具體到一般，每組 2～5 個英文單字，例如 [\"Carlton Melbourne terrace houses\", \"Melbourne university campus\", \"Melbourne suburb street\", \"Melbourne skyline\"]。",
     "scene：英文 50～100 字，具體寫出地點、建築或景物、季節、時間與光線、拍攝角度；不要描述任何文字或招牌。",
     "headline、subline 不得出現保證獲利、誇大或捏造的數字。",
-    '只輸出 JSON：{"headline":"...","subline":"...","tag":"...","queries":["..."],"scene":"..."}',
-  ].join("\n");
+    library.length
+      ? [
+          "以下是品牌自己的照片庫（官網建案圖與實拍素材），請優先使用：",
+          "如果文案提到某個建案、區域或城市，或主題適合用建案外觀、室內來表現，就從清單挑最貼切的一張，把它的 id 填進 libraryId；",
+          "清單裡沒有合適的（例如主題在講布里斯本卻只有墨爾本的照片），libraryId 填 null，改用 queries 去公開圖庫找。",
+          library.map((x) => `${x.id}｜${x.label}`).join("\n"),
+        ].join("\n")
+      : "",
+    opts.carousel
+      ? [
+          "這篇是 IG 輪播貼文，請另外規劃內頁：",
+          "slides：4～6 張，每張只講一個重點；title 12 字內，body 40～70 字，可用短句或 2～3 個列點（每點一行，以「・」開頭）。第一張內頁說明「為什麼這個主題重要」，最後一張內頁做總結或注意事項。",
+          "question：最後一張的互動問題，只問一個、容易回答（例如「你會選 A 還是 B？」），30 字內。",
+          "cta：最後一張的行動呼籲，30 字內（例如「收藏起來，分享給正在準備留學的家長」或「私訊『墨爾本』索取選區整理」）。",
+        ].join("\n")
+      : "",
+    `只輸出 JSON：{"headline":"...","subline":"...","tag":"...","libraryId":null,"queries":["..."],"scene":"..."${opts.carousel ? ',"slides":[{"title":"...","body":"..."}],"question":"...","cta":"..."' : ""}}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
   const r = await askJson<ArtDirection>(instructions, `主題：${topic}\n\n文案：\n${caption}`);
   return {
     headline: String(r.headline ?? "").slice(0, 22),
@@ -52,6 +85,15 @@ export async function artDirect(caption: string, topic: string): Promise<ArtDire
     tag: String(r.tag ?? "").slice(0, 10),
     scene: String(r.scene ?? topic),
     queries: Array.isArray(r.queries) ? r.queries.map(String).filter(Boolean).slice(0, 4) : [],
+    libraryId: r.libraryId && library.some((x) => x.id === r.libraryId) ? String(r.libraryId) : undefined,
+    slides: Array.isArray(r.slides)
+      ? r.slides
+          .map((x: any) => ({ title: String(x?.title ?? "").slice(0, 20), body: String(x?.body ?? "").slice(0, 160) }))
+          .filter((x) => x.title)
+          .slice(0, 6)
+      : undefined,
+    question: r.question ? String(r.question).slice(0, 40) : undefined,
+    cta: r.cta ? String(r.cta).slice(0, 40) : undefined,
   };
 }
 
@@ -150,165 +192,252 @@ async function findPhoto(art: ArtDirection, avoid: Set<string>): Promise<Found> 
   throw new Error("找不到合適的真實照片（可在 Vercel 設定 PEXELS_API_KEY 擴大圖庫，或上傳自己的照片）");
 }
 
-let assets: Promise<{ serif: Buffer; sans: Buffer; logo: string }> | null = null;
+let assets: Promise<{ serif: Buffer; sans: Buffer }> | null = null;
 function loadAssets() {
   assets ??= (async () => {
-    const dir = path.join(process.cwd(), "assets");
-    const [serif, sans, logo] = await Promise.all([
-      readFile(path.join(dir, "fonts", "NotoSerifTC_700Bold.ttf")),
-      readFile(path.join(dir, "fonts", "NotoSansTC_500Medium.ttf")),
-      readFile(path.join(dir, "logo-white.png")),
+    const dir = path.join(process.cwd(), "assets", "fonts");
+    const [serif, sans] = await Promise.all([
+      readFile(path.join(dir, "NotoSerifTC_700Bold.ttf")),
+      readFile(path.join(dir, "NotoSansTC_500Medium.ttf")),
     ]);
-    return { serif, sans, logo: `data:image/png;base64,${logo.toString("base64")}` };
+    return { serif, sans };
   })();
   return assets;
 }
 
-/** 把照片排進品牌版型，回傳 JPEG。 */
+const FONTS = (serif: Buffer, sans: Buffer) => [
+  { name: "Serif", data: serif, weight: 700 as const, style: "normal" as const },
+  { name: "Sans", data: sans, weight: 500 as const, style: "normal" as const },
+];
+
+const GOLD = "#D9A94E";
+const CHAMPAGNE = "#F3E6C4";
+const IVORY = "#FBF8F2";
+const INK = "#26313F";
+
+function brandRgb() {
+  const hex = /^#?([0-9a-f]{6})$/i.exec(brand.colorPrimary)?.[1] ?? "2E5E8C";
+  return [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16)) as [number, number, number];
+}
+
+/** 底部品牌列：只用文字品牌名（不放 Logo 圖檔）與標語 */
+function BrandBar({ color = "#ffffff", line = "rgba(243,230,196,0.45)" }: { color?: string; line?: string }) {
+  return (
+    <div
+      style={{
+        position: "absolute",
+        left: 64,
+        right: 64,
+        bottom: 56,
+        height: 72,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        borderTop: `1px solid ${line}`,
+        paddingTop: 20,
+      }}
+    >
+      <div style={{ fontFamily: "Serif", fontSize: 34, color, letterSpacing: 6, display: "flex" }}>{brand.name}</div>
+      <div style={{ fontFamily: "Serif", fontSize: 26, color: GOLD, letterSpacing: 4, display: "flex" }}>{brand.slogan}</div>
+    </div>
+  );
+}
+
+async function render(node: React.ReactElement): Promise<Buffer> {
+  const { serif, sans } = await loadAssets();
+  const res = new ImageResponse(node, { width: W, height: H, fonts: FONTS(serif, sans) });
+  return sharp(Buffer.from(await res.arrayBuffer())).jpeg({ quality: 88 }).toBuffer();
+}
+
+/** 封面：照片＋標題，排進品牌版型，回傳 JPEG。 */
 export async function composePost(
   photo: Buffer,
   art: Pick<ArtDirection, "headline" | "subline" | "tag">,
   credit?: string,
 ): Promise<Buffer> {
-  const { serif, sans, logo } = await loadAssets();
   const bg = await sharp(photo).resize(W, H, { fit: "cover" }).jpeg({ quality: 90 }).toBuffer();
   const bgUri = `data:image/jpeg;base64,${bg.toString("base64")}`;
-  const hex = /^#?([0-9a-f]{6})$/i.exec(brand.colorPrimary)?.[1] ?? "2E5E8C";
-  const [r, g, b] = [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16));
-  const gold = "#D9A94E";
-  const champagne = "#F3E6C4";
+  const [r, g, b] = brandRgb();
   // 依字數縮放，讓主標盡量排成一到兩行整齊的字
   const len = [...art.headline].length;
   const headlineSize = len <= 9 ? 80 : len <= 12 ? 72 : len <= 14 ? 64 : 56;
 
-  const res = new ImageResponse(
-    (
-      <div style={{ width: W, height: H, display: "flex", position: "relative", fontFamily: "Sans" }}>
-        <img src={bgUri} width={W} height={H} style={{ position: "absolute", top: 0, left: 0 }} />
+  return render(
+    <div style={{ width: W, height: H, display: "flex", position: "relative", fontFamily: "Sans" }}>
+      <img src={bgUri} width={W} height={H} style={{ position: "absolute", top: 0, left: 0 }} />
+      <div
+        style={{
+          position: "absolute",
+          left: 0,
+          right: 0,
+          bottom: 0,
+          height: 640,
+          display: "flex",
+          backgroundImage: `linear-gradient(180deg, rgba(20,40,64,0) 0%, rgba(20,40,64,0.55) 35%, rgba(${r},${g},${b},0.95) 100%)`,
+        }}
+      />
+      {art.tag && (
         <div
           style={{
             position: "absolute",
-            left: 0,
-            right: 0,
-            bottom: 0,
-            height: 640,
-            display: "flex",
-            backgroundImage: `linear-gradient(180deg, rgba(20,40,64,0) 0%, rgba(20,40,64,0.55) 35%, rgba(${r},${g},${b},0.95) 100%)`,
-          }}
-        />
-        {art.tag && (
-          <div
-            style={{
-              position: "absolute",
-              top: 56,
-              left: 64,
-              display: "flex",
-              padding: "10px 22px",
-              border: `2px solid ${gold}`,
-              backgroundColor: "rgba(20,40,64,0.55)",
-              color: "#ffffff",
-              fontSize: 28,
-              letterSpacing: 2,
-            }}
-          >
-            {art.tag}
-          </div>
-        )}
-        <div
-          style={{
-            position: "absolute",
+            top: 56,
             left: 64,
-            right: 64,
-            bottom: 170,
             display: "flex",
-            flexDirection: "column",
+            padding: "10px 22px",
+            border: `2px solid ${GOLD}`,
+            backgroundColor: "rgba(20,40,64,0.55)",
+            color: "#ffffff",
+            fontSize: 28,
+            letterSpacing: 2,
           }}
         >
-          <div style={{ width: 88, height: 4, backgroundColor: gold, marginBottom: 28, display: "flex" }} />
-          <div
-            style={{
-              fontFamily: "Serif",
-              fontSize: headlineSize,
-              lineHeight: 1.25,
-              color: "#ffffff",
-              display: "flex",
-              textShadow: "0 2px 12px rgba(0,0,0,0.25)",
-            }}
-          >
-            {art.headline}
-          </div>
-          {art.subline && (
-            <div style={{ fontSize: 34, lineHeight: 1.5, color: champagne, marginTop: 20, display: "flex" }}>
-              {art.subline}
-            </div>
-          )}
+          {art.tag}
         </div>
+      )}
+      <div style={{ position: "absolute", left: 64, right: 64, bottom: 170, display: "flex", flexDirection: "column" }}>
+        <div style={{ width: 88, height: 4, backgroundColor: GOLD, marginBottom: 28, display: "flex" }} />
         <div
           style={{
-            position: "absolute",
-            left: 64,
-            right: 64,
-            bottom: 56,
-            height: 72,
+            fontFamily: "Serif",
+            fontSize: headlineSize,
+            lineHeight: 1.25,
+            color: "#ffffff",
             display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            borderTop: "1px solid rgba(243,230,196,0.45)",
-            paddingTop: 20,
+            textShadow: "0 2px 12px rgba(0,0,0,0.25)",
           }}
         >
-          <div style={{ display: "flex", alignItems: "center" }}>
-            <img src={logo} width={60} height={51} style={{ marginRight: 18 }} />
-            <div style={{ fontFamily: "Serif", fontSize: 30, color: "#ffffff", display: "flex" }}>{brand.name}</div>
-          </div>
-          <div style={{ fontFamily: "Serif", fontSize: 26, color: gold, letterSpacing: 4, display: "flex" }}>
-            {brand.slogan}
-          </div>
+          {art.headline}
         </div>
-        {credit && (
-          <div
-            style={{
-              position: "absolute",
-              right: 24,
-              top: 24,
-              display: "flex",
-              fontSize: 16,
-              color: "rgba(255,255,255,0.8)",
-              textShadow: "0 1px 4px rgba(0,0,0,0.6)",
-            }}
-          >
-            {credit.replace(/[^\x20-\x7E]/g, "")}
-          </div>
+        {art.subline && (
+          <div style={{ fontSize: 34, lineHeight: 1.5, color: CHAMPAGNE, marginTop: 20, display: "flex" }}>{art.subline}</div>
         )}
       </div>
-    ),
-    {
-      width: W,
-      height: H,
-      fonts: [
-        { name: "Serif", data: serif, weight: 700, style: "normal" },
-        { name: "Sans", data: sans, weight: 500, style: "normal" },
-      ],
-    },
+      <BrandBar />
+      {credit && (
+        <div
+          style={{
+            position: "absolute",
+            right: 24,
+            top: 24,
+            display: "flex",
+            fontSize: 16,
+            color: "rgba(255,255,255,0.8)",
+            textShadow: "0 1px 4px rgba(0,0,0,0.6)",
+          }}
+        >
+          {credit.replace(/[^\x20-\x7E]/g, "")}
+        </div>
+      )}
+    </div>,
   );
-  const png = Buffer.from(await res.arrayBuffer());
-  return sharp(png).jpeg({ quality: 88 }).toBuffer();
 }
 
+/** 輪播內頁：象牙底、編號、標題與重點，像雜誌內頁。 */
+export async function composeSlide(index: number, total: number, slide: { title: string; body: string }): Promise<Buffer> {
+  const [r, g, b] = brandRgb();
+  const blue = `rgb(${r},${g},${b})`;
+  const lines = slide.body
+    .split(/\n+/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+  return render(
+    <div style={{ width: W, height: H, display: "flex", flexDirection: "column", position: "relative", backgroundColor: IVORY, fontFamily: "Sans" }}>
+      <div style={{ height: 16, backgroundColor: blue, display: "flex" }} />
+      <div style={{ display: "flex", flexDirection: "column", padding: "110px 88px 0 88px" }}>
+        <div style={{ display: "flex", alignItems: "baseline" }}>
+          <div style={{ fontFamily: "Serif", fontSize: 120, color: GOLD, lineHeight: 1, display: "flex" }}>
+            {String(index).padStart(2, "0")}
+          </div>
+          <div style={{ fontSize: 30, color: "#8C6A2E", marginLeft: 20, display: "flex" }}>/ {String(total).padStart(2, "0")}</div>
+        </div>
+        <div style={{ width: 88, height: 4, backgroundColor: GOLD, margin: "40px 0 36px 0", display: "flex" }} />
+        <div style={{ fontFamily: "Serif", fontSize: 68, lineHeight: 1.3, color: blue, display: "flex" }}>{slide.title}</div>
+        <div style={{ display: "flex", flexDirection: "column", marginTop: 44 }}>
+          {lines.map((line, i) => {
+            const bullet = /^[・•\-]\s*/.exec(line);
+            return (
+              <div key={i} style={{ fontSize: 40, lineHeight: 1.65, color: INK, display: "flex", marginBottom: 12 }}>
+                {bullet && <div style={{ color: GOLD, width: 44, flexShrink: 0, display: "flex" }}>・</div>}
+                <div style={{ display: "flex", flex: 1 }}>{bullet ? line.slice(bullet[0].length) : line}</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <BrandBar color={blue} line="rgba(46,94,140,0.25)" />
+    </div>,
+  );
+}
+
+/** 輪播最後一張：互動問題＋CTA，品牌藍底。 */
+export async function composeEnd(question: string, cta: string): Promise<Buffer> {
+  const [r, g, b] = brandRgb();
+  return render(
+    <div
+      style={{
+        width: W,
+        height: H,
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "center",
+        position: "relative",
+        backgroundColor: `rgb(${r},${g},${b})`,
+        padding: "0 88px",
+        fontFamily: "Sans",
+      }}
+    >
+      <div style={{ fontSize: 34, color: GOLD, letterSpacing: 4, display: "flex", marginBottom: 28 }}>想聽聽你的看法</div>
+      <div style={{ fontFamily: "Serif", fontSize: 64, lineHeight: 1.35, color: "#ffffff", display: "flex" }}>{question}</div>
+      <div style={{ width: 88, height: 4, backgroundColor: GOLD, margin: "56px 0 40px 0", display: "flex" }} />
+      <div style={{ fontSize: 40, lineHeight: 1.6, color: CHAMPAGNE, display: "flex" }}>{cta}</div>
+      <BrandBar />
+    </div>,
+  );
+}
+
+export type DesignResult = { url: string; urls?: string[]; photo: PhotoInfo };
+
 /**
- * 文案定稿後產生貼文主視覺：美術企劃 → 真實照片（使用者上傳的照片優先）→ 品牌版型 → 上傳。
+ * 文案定稿後產生貼文圖片：美術企劃 → 照片（上傳的照片 > 照片庫 > 公開圖庫）→ 品牌版型 → 上傳。
+ * carousel 時另外產生內頁與結尾頁（IG 輪播）。
  */
 export async function designPostImage(input: {
   caption: string;
   topic: string;
   photo?: Buffer;
   avoidPhotoIds?: string[];
-}): Promise<{ url: string; photo: PhotoInfo }> {
-  const art = await artDirect(input.caption, input.topic);
-  const found: Found = input.photo
-    ? { bytes: input.photo, info: { source: "upload" } }
-    : await findPhoto(art, new Set(input.avoidPhotoIds ?? []));
+  carousel?: boolean;
+}): Promise<DesignResult> {
+  const avoid = new Set(input.avoidPhotoIds ?? []);
+  const library = input.photo ? [] : (await listLibrary().catch(() => [])).filter((p) => !avoid.has(`library:${p.id}`));
+  const art = await artDirect(input.caption, input.topic, {
+    carousel: input.carousel,
+    library: library.map((p) => ({ id: p.id, label: `${p.data.title}｜${p.data.description}`.slice(0, 160) })),
+  });
+
+  let found: Found;
+  const picked = library.find((p) => p.id === art.libraryId);
+  if (input.photo) found = { bytes: input.photo, info: { source: "upload" } };
+  else if (picked) {
+    try {
+      found = { bytes: await download(picked.data.url), info: { source: "library", id: `library:${picked.id}`, credit: picked.data.title } };
+    } catch {
+      found = await findPhoto(art, avoid);
+    }
+  } else found = await findPhoto(art, avoid);
+
   // Wikimedia 的 CC 授權要求在圖上標示作者與授權
-  const jpeg = await composePost(found.bytes, art, found.info.source === "wikimedia" ? found.info.credit : undefined);
-  return { url: await uploadImage(jpeg, "image/jpeg"), photo: found.info };
+  const cover = await composePost(found.bytes, art, found.info.source === "wikimedia" ? found.info.credit : undefined);
+  const coverUrl = await uploadImage(cover, "image/jpeg");
+  if (!input.carousel || !art.slides?.length) return { url: coverUrl, photo: found.info };
+
+  const total = art.slides.length;
+  const urls = [coverUrl];
+  for (const [i, slide] of art.slides.entries()) {
+    urls.push(await uploadImage(await composeSlide(i + 1, total, slide), "image/jpeg"));
+  }
+  if (art.question || art.cta) {
+    urls.push(await uploadImage(await composeEnd(art.question ?? "", art.cta ?? ""), "image/jpeg"));
+  }
+  return { url: coverUrl, urls, photo: found.info };
 }
