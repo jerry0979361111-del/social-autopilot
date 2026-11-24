@@ -23,6 +23,8 @@ export type PostData = {
   imageUrls?: string[];
   /** 給團隊參考的 Reels 腳本（不會自動發布） */
   reelsScript?: string;
+  /** 由官方網站更新選題時的來源 */
+  official?: { state: string; label: string; title: string; url: string };
   /** 由熱門新聞選題時的來源議題 */
   trend?: { title: string; source: string; date: string };
 };
@@ -47,6 +49,9 @@ export type ManagerLog = { at: string; ok: boolean; message: string; postId?: st
 
 export type Reference = { keywords: string[]; url: string; note: string };
 
+/** 要監測的官方網站頁面：news＝公告列表（抓新文章），page＝規定頁面（比對內容變更） */
+export type OfficialSource = { state: string; label: string; url: string; kind: "news" | "page" };
+
 /** 單一平台（FB 或 IG）的經營計畫 */
 export type ChannelPlan = {
   enabled: boolean;
@@ -66,6 +71,8 @@ export type ManagerData = {
   channels?: Record<Platform, ChannelPlan>;
   /** 特定主題要參考的資料來源（例如 FIRB 判決） */
   references?: Reference[];
+  /** 官方資料監測來源（州稅局等） */
+  officialSources?: OfficialSource[];
   lastReportAt?: string;
   logs: ManagerLog[];
   // 舊版（FB、IG 同一套設定）的欄位，讀取時會轉成 channels

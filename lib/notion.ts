@@ -11,6 +11,7 @@ export const AUTOMATION_PREFIX = "[自動化] ";
 export const MANAGER_TITLE = "[系統] AI 社群經理設定";
 export const REPORT_PREFIX = "[成效報告] ";
 export const LIBRARY_PREFIX = "[照片庫] ";
+export const OFFICIAL_PREFIX = "[官方資料] ";
 
 export const STATUSES = ["草稿", "已排程", "發布中", "已發布", "發布失敗"] as const;
 export type Status = (typeof STATUSES)[number];
@@ -137,4 +138,5 @@ export const titleIsReserved = (title: string) =>
   title === MANAGER_TITLE ||
   title.startsWith(AUTOMATION_PREFIX) ||
   title.startsWith(REPORT_PREFIX) ||
-  title.startsWith(LIBRARY_PREFIX);
+  title.startsWith(LIBRARY_PREFIX) ||
+  title.startsWith(OFFICIAL_PREFIX);

@@ -1,6 +1,7 @@
 import { generateText } from "./ai";
 import { designPostImage } from "./design";
-import { runManager } from "./manager";
+import { getManager, runManager } from "./manager";
+import { checkOfficialSources, officialKnowledgeFor } from "./official";
 import { publishToPlatforms } from "./meta";
 import {
   AUTOMATION_PREFIX,
@@ -30,7 +31,12 @@ export async function createDraft(input: {
   photo?: Buffer;
   automationId?: string;
 }): Promise<NotionRecord<PostData>> {
-  const text = await generateText(input.topic, input.platforms, { webSearch: input.webSearch });
+  const knowledge = await officialKnowledgeFor(input.topic).catch(() => "");
+  const text = await generateText(
+    knowledge ? `${input.topic}\n\n以下是州稅局官方網站的最新重點，涉及稅率、門檻、日期時以此為準：\n${knowledge}` : input.topic,
+    input.platforms,
+    { webSearch: input.webSearch },
+  );
   const design =
     input.photo || input.withImage
       ? await designPostImage({ caption: text.caption, topic: input.topic, photo: input.photo })
@@ -125,9 +131,10 @@ export function dueSlot(a: AutomationData, nowMs: number): string | null {
 export async function runCron(budgetMs = 240_000) {
   const started = Date.now();
   const timeLeft = () => budgetMs - (Date.now() - started);
-  const report: { posts: string[]; manager: string[]; automations: string[]; recovered: string[] } = {
+  const report: { posts: string[]; manager: string[]; official: string[]; automations: string[]; recovered: string[] } = {
     posts: [],
     manager: [],
+    official: [],
     automations: [],
     recovered: [],
   };
@@ -165,7 +172,17 @@ export async function runCron(budgetMs = 240_000) {
     report.manager = [`錯誤：${e?.message ?? e}`];
   }
 
-  // 4) 到點的自動化任務（每個要產文產圖，較花時間）
+  // 4) 官方資料監測：每個來源約每天讀一次，學習內容並偵測新公告與規定變更
+  if (timeLeft() > 60_000) {
+    try {
+      const m = await getManager();
+      report.official = await checkOfficialSources(m.officialSources ?? [], timeLeft);
+    } catch (e: any) {
+      report.official = [`錯誤：${e?.message ?? e}`];
+    }
+  }
+
+  // 5) 到點的自動化任務（每個要產文產圖，較花時間）
   for (const a of await listAutomations()) {
     if (timeLeft() < 150_000) break;
     const slot = dueSlot(a.data, Date.now());

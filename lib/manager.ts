@@ -9,6 +9,7 @@ import {
 } from "./ai";
 import { designPostImage } from "./design";
 import { fetchMetrics } from "./meta";
+import { DEFAULT_OFFICIAL_SOURCES, markUsed, OFFICE_NAME, officialKnowledgeFor, pendingUpdates } from "./official";
 import {
   createRecord,
   MANAGER_TITLE,
@@ -94,7 +95,12 @@ export async function getManagerRecord(): Promise<NotionRecord<ManagerData> | nu
 
 export async function getManager(): Promise<ManagerData> {
   const m = (await getManagerRecord())?.data ?? DEFAULT_MANAGER;
-  return { ...m, channels: channelsOf(m), references: m.references ?? DEFAULT_REFERENCES };
+  return {
+    ...m,
+    channels: channelsOf(m),
+    references: m.references ?? DEFAULT_REFERENCES,
+    officialSources: m.officialSources ?? DEFAULT_OFFICIAL_SOURCES,
+  };
 }
 
 export async function saveManager(data: ManagerData): Promise<void> {
@@ -171,13 +177,33 @@ export async function fillNextSlot(): Promise<string | null> {
     .flatMap((p) => [p.title, p.data.trend?.title ?? ""])
     .filter(Boolean);
 
-  // 1) 先找近兩週最熱門、而且還沒做過的新聞議題
-  let trend: TrendTopic | undefined;
+  // 0) 州稅局等官方網站有新公告或規定變更、還沒寫過的，最優先
+  let official: Awaited<ReturnType<typeof pendingUpdates>>[number] | undefined;
   try {
-    const trends = await researchTrends(platform, covered);
-    trend = trends.find((t) => !covered.some((c) => similarTopic(c, t.title)));
+    official = (await pendingUpdates()).find(({ update }) => !covered.some((c) => similarTopic(c, update.title)));
   } catch {
-    trend = undefined;
+    official = undefined;
+  }
+
+  // 1) 其次找近兩週最熱門、而且還沒做過的新聞議題
+  let trend: TrendTopic | undefined;
+  if (official) {
+    const o = official;
+    trend = {
+      title: `${o.rec.data.state} ${o.update.title}`,
+      summary: o.update.summary,
+      source: OFFICE_NAME[o.rec.data.state] ?? o.rec.data.state,
+      date: o.update.at.slice(0, 10),
+      why: "州政府官方網站剛公布的最新規定或公告",
+      angle: "說明這項官方更新對台灣買家、海外買家或留學家庭的實際影響，以及該怎麼準備",
+    };
+  } else {
+    try {
+      const trends = await researchTrends(platform, covered);
+      trend = trends.find((t) => !covered.some((c) => similarTopic(c, t.title)));
+    } catch {
+      trend = undefined;
+    }
   }
 
   // 2) 熱門議題都做過了（或搜尋失敗），才改用內容支柱選常青主題
@@ -204,11 +230,19 @@ export async function fillNextSlot(): Promise<string | null> {
     .filter(Boolean)
     .join("\n");
   const refs = matchReferences(m.references ?? DEFAULT_REFERENCES, `${trend?.title ?? ""} ${trend?.summary ?? ""} ${pillar.description}`);
-  const topicWithRefs = refs.length
-    ? `${topic}\n本主題請務必參考並查證以下資料，內容與新聞報導不一致時以官方或法院資料為準，並在文末列出：\n${refs
-        .map((r) => `- ${r.note}：${r.url}`)
-        .join("\n")}`
-    : topic;
+  const knowledge = await officialKnowledgeFor(`${trend?.title ?? ""} ${trend?.summary ?? ""} ${pillar.description}`).catch(() => "");
+  const topicWithRefs = [
+    topic,
+    official ? `官方原文：${official.update.url}（請以官方原文為準，文末註明「資料來源：${trend?.source}（${trend?.date}）」）` : "",
+    refs.length
+      ? `本主題請務必參考並查證以下資料，內容與新聞報導不一致時以官方或法院資料為準，並在文末列出：\n${refs
+          .map((r) => `- ${r.note}：${r.url}`)
+          .join("\n")}`
+      : "",
+    knowledge ? `以下是系統從州稅局官方網站整理的最新重點，涉及稅率、門檻、日期時以此為準：\n${knowledge}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   try {
     const text = await generateText(topicWithRefs, [platform], { webSearch: true, channel: platform });
@@ -247,12 +281,16 @@ export async function fillNextSlot(): Promise<string | null> {
         pillar: pillar.name,
         managerSlot: slotKey(platform, slot),
         trend: trend ? { title: trend.title, source: trend.source, date: trend.date } : undefined,
+        official: official
+          ? { state: official.rec.data.state, label: official.rec.data.label, title: official.update.title, url: official.update.url }
+          : undefined,
         review: { pass: review.pass, score: review.score, issues: review.issues, at: new Date().toISOString() },
       },
     });
     const msg = review.pass
-      ? `${label}：已排程「${text.title}」（${trend ? `熱門議題：${trend.title}` : pillar.name}，審稿 ${review.score} 分）`
+      ? `${label}：已排程「${text.title}」（${official ? `官方更新：${trend?.title}` : trend ? `熱門議題：${trend.title}` : pillar.name}，審稿 ${review.score} 分）`
       : `${label}：「${text.title}」未通過審稿，留在草稿未發布：${review.issues.join("；")}`;
+    if (review.pass && official) await markUsed(official.rec.id, official.update.url, official.update.at);
     await addLog(msg, review.pass, rec.id);
     return msg;
   } catch (e: any) {

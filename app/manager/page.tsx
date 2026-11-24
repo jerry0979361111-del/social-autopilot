@@ -109,7 +109,7 @@ export default async function ManagerPage({
       <h1>AI 社群經理</h1>
       <Alerts error={error ?? loadError} notice={notice} />
       <p className="muted">
-        FB 與 IG 分開經營。每次產文前，AI 會先上網搜尋近兩週澳洲房市、留學、簽證的新聞與討論，挑最熱門且還沒做過的議題；
+        FB 與 IG 分開經營。選題順序：州稅局官方網站的新公告或規定變更最優先；其次上網搜尋近兩週澳洲房市、留學、簽證的新聞與討論，挑最熱門且還沒做過的議題；
         都做過了才改用常青內容支柱。文案通過審稿後，再依文案找真實照片做圖，排進行事曆自動發布。每週分析一次成效並調整方向。
       </p>
 
@@ -154,7 +154,13 @@ export default async function ManagerPage({
                   <td>{formatTaipei(p.publishAt)}</td>
                   <td>{p.data.platforms.map((x) => CHANNEL_LABEL[x]).join("、")}</td>
                   <td>{p.title}</td>
-                  <td>{p.data.trend ? `熱門：${p.data.trend.title}（${p.data.trend.source}）` : p.data.pillar}</td>
+                  <td>
+                    {p.data.official
+                      ? `官方更新：${p.data.trend?.title ?? p.data.official.title}`
+                      : p.data.trend
+                        ? `熱門：${p.data.trend.title}（${p.data.trend.source}）`
+                        : p.data.pillar}
+                  </td>
                   <td className={p.data.review?.pass ? "ok" : "err"}>
                     {p.data.review?.pass ? `通過 ${p.data.review.score} 分` : `未通過：${p.data.review?.issues.join("；")}`}
                   </td>
