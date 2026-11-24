@@ -4,7 +4,7 @@ import { getManager } from "@/lib/manager";
 import { listSnapshots, OFFICE_NAME } from "@/lib/official";
 import { formatTaipei } from "@/lib/time";
 import type { OfficialSource } from "@/lib/types";
-import { checkNow, saveSources } from "./actions";
+import { backfill, checkNow, saveSources } from "./actions";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -40,9 +40,14 @@ export default async function OfficialPage({
       <section className="card">
         <div className="row">
           <h2 className="grow" style={{ margin: 0 }}>最新官方更新</h2>
-          <form action={checkNow}>
-            <SubmitButton pendingText="讀取並分析官方網站中…（最多約 4 分鐘）">立即檢查全部</SubmitButton>
-          </form>
+          <div className="actions" style={{ marginTop: 0 }}>
+            <form action={backfill}>
+              <SubmitButton pendingText="挑選並整理近期公告中…">近 30 天相關公告標成待發</SubmitButton>
+            </form>
+            <form action={checkNow}>
+              <SubmitButton pendingText="讀取並分析官方網站中…（最多約 4 分鐘）">立即檢查全部</SubmitButton>
+            </form>
+          </div>
         </div>
         {updates.length === 0 ? (
           <p className="muted">還沒有偵測到新公告。第一次檢查只會建立基準與學習內容，之後有新公告或規定變更才會出現在這裡。</p>

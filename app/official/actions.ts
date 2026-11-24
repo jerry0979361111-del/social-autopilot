@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { getManager, saveManager } from "@/lib/manager";
-import { checkOfficialSources } from "@/lib/official";
+import { backfillRecent, checkOfficialSources } from "@/lib/official";
 import { back } from "@/lib/redirect";
 import type { OfficialSource } from "@/lib/types";
 
@@ -45,5 +45,14 @@ export async function saveSources(form: FormData) {
     const m = await getManager();
     await saveManager({ ...m, officialSources: sources });
     return `已儲存 ${sources.length} 個官方來源`;
+  });
+}
+
+export async function backfill() {
+  await run(async () => {
+    const m = await getManager();
+    const started = Date.now();
+    const out = await backfillRecent(m.officialSources ?? [], 30, () => 250_000 - (Date.now() - started));
+    return `已把近 30 天的相關公告標成待發 — ${out.join("；")}`;
   });
 }

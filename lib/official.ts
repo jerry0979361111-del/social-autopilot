@@ -294,3 +294,50 @@ export async function officialKnowledgeFor(topic: string): Promise<string> {
     )
     .join("\n\n");
 }
+
+/**
+ * 補做近期公告：重新讀取公告列表，挑出最近 days 天內、與房產稅務或海外買家相關的文章，
+ * 整理後標成「待發」（已在待發或已寫過的不重複加入）。
+ */
+export async function backfillRecent(sources: OfficialSource[], days: number, timeLeft: () => number): Promise<string[]> {
+  const snaps = await listSnapshots();
+  const today = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
+  const out: string[] = [];
+  for (const src of sources.filter((s) => s.kind === "news")) {
+    if (timeLeft() < 60_000) break;
+    const rec = snaps.find((s) => s.data.url === src.url);
+    try {
+      const links = articleLinks(await fetchHtml(src.url), src.url);
+      const known = new Set((rec?.data.updates ?? []).map((u) => u.url));
+      const candidates = links.filter((l) => !known.has(l.url));
+      if (candidates.length === 0) {
+        out.push(`${src.state}：沒有可補的公告`);
+        continue;
+      }
+      const pick = await askJson<{ urls: string[] }>(
+        [
+          `今天是 ${today}。以下是 ${OFFICE_NAME[src.state] ?? src.state} 的公告列表（標題可能含發布日期，網址可能含年月）。`,
+          `請挑出「最近 ${days} 天內發布」且與房地產相關的公告：土地稅、印花稅、海外買家或海外人士附加稅、空置稅、購屋補助或優惠、州預算中的房產稅務。`,
+          "與房產無關的（例如薪資稅、博彩稅、車輛、礦業權利金、系統維護）不要選；無法判斷日期且看不出是近期的也不要選。",
+          '只輸出 JSON：{"urls":["..."]}',
+        ].join("\n"),
+        candidates.map((l) => `- ${l.title} | ${l.url}`).join("\n"),
+      );
+      const chosen = candidates.filter((l) => (pick.urls ?? []).includes(l.url)).slice(0, 6);
+      const added: OfficialUpdate[] = [];
+      for (const l of chosen) {
+        if (timeLeft() < 30_000) break;
+        added.push(await summarizeArticle(src, l.title, l.url));
+      }
+      if (rec && added.length) {
+        await updateRecord<OfficialSnapshot>(rec.id, {
+          data: { ...rec.data, updates: [...added, ...(rec.data.updates ?? [])].slice(0, 15) },
+        });
+      }
+      out.push(`${src.state}：${added.length ? added.map((a) => a.title).join("、") : "近期沒有相關公告"}`);
+    } catch (e: any) {
+      out.push(`${src.state}：錯誤 ${e?.message ?? e}`);
+    }
+  }
+  return out;
+}
