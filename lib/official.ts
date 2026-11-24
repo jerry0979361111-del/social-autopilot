@@ -47,7 +47,7 @@ export const OFFICE_NAME: Record<string, string> = {
   QLD: "昆士蘭州稅局（QRO）",
 };
 
-export type OfficialUpdate = { at: string; title: string; summary: string; url: string; usedAt?: string };
+export type OfficialUpdate = { at: string; title: string; summary: string; url: string; usedAt?: string; skippedAt?: string };
 
 export type OfficialSnapshot = {
   kind: "official";
@@ -260,8 +260,18 @@ export async function pendingUpdates(): Promise<{ rec: NotionRecord<OfficialSnap
   const since = Date.now() - 30 * 24 * 3600_000;
   return (await listSnapshots())
     .flatMap((rec) => (rec.data.updates ?? []).map((update) => ({ rec, update })))
-    .filter(({ update }) => !update.usedAt && new Date(update.at).getTime() >= since)
+    .filter(({ update }) => !update.usedAt && !update.skippedAt && new Date(update.at).getTime() >= since)
     .sort((a, b) => b.update.at.localeCompare(a.update.at));
+}
+
+/** 不想發的官方更新：標成略過，AI 社群經理就不會拿來寫 */
+export async function skipUpdate(recId: string, updateUrl: string, updateAt: string): Promise<void> {
+  const rec = (await listSnapshots()).find((r) => r.id === recId);
+  if (!rec) return;
+  const updates = rec.data.updates.map((u) =>
+    u.url === updateUrl && u.at === updateAt ? { ...u, skippedAt: new Date().toISOString() } : u,
+  );
+  await updateRecord<OfficialSnapshot>(rec.id, { data: { ...rec.data, updates } });
 }
 
 export async function markUsed(recId: string, updateUrl: string, updateAt: string): Promise<void> {

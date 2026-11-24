@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { getManager, saveManager } from "@/lib/manager";
-import { backfillRecent, checkOfficialSources } from "@/lib/official";
+import { backfillRecent, checkOfficialSources, skipUpdate } from "@/lib/official";
 import { back } from "@/lib/redirect";
 import type { OfficialSource } from "@/lib/types";
 
@@ -54,5 +54,12 @@ export async function backfill() {
     const started = Date.now();
     const out = await backfillRecent(m.officialSources ?? [], 30, () => 250_000 - (Date.now() - started));
     return `已把近 30 天的相關公告標成待發 — ${out.join("；")}`;
+  });
+}
+
+export async function skip(form: FormData) {
+  await run(async () => {
+    await skipUpdate(String(form.get("rec")), String(form.get("url")), String(form.get("at")));
+    return "已略過，這則不會寫成貼文";
   });
 }

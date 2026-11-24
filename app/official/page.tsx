@@ -4,7 +4,7 @@ import { getManager } from "@/lib/manager";
 import { listSnapshots, OFFICE_NAME } from "@/lib/official";
 import { formatTaipei } from "@/lib/time";
 import type { OfficialSource } from "@/lib/types";
-import { backfill, checkNow, saveSources } from "./actions";
+import { backfill, checkNow, saveSources, skip } from "./actions";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -24,7 +24,7 @@ export default async function OfficialPage({
     loadError = String(e?.message ?? e);
   }
   const updates = snaps
-    .flatMap((s) => (s.data.updates ?? []).map((u) => ({ s: s.data, u })))
+    .flatMap((s) => (s.data.updates ?? []).map((u) => ({ s: s.data, id: s.id, u })))
     .sort((a, b) => b.u.at.localeCompare(a.u.at))
     .slice(0, 20);
 
@@ -57,7 +57,7 @@ export default async function OfficialPage({
               <tr><th>偵測時間</th><th>來源</th><th>更新內容</th><th>狀態</th></tr>
             </thead>
             <tbody>
-              {updates.map(({ s, u }, i) => (
+              {updates.map(({ s, id, u }, i) => (
                 <tr key={i}>
                   <td>{formatTaipei(u.at)}</td>
                   <td>{s.state} {s.label}</td>
@@ -65,7 +65,21 @@ export default async function OfficialPage({
                     <a href={u.url} target="_blank" rel="noreferrer"><strong>{u.title}</strong></a>
                     <div className="muted">{u.summary}</div>
                   </td>
-                  <td className={u.usedAt ? "ok" : ""}>{u.usedAt ? `已寫成貼文（${formatTaipei(u.usedAt)}）` : "待發"}</td>
+                  <td className={u.usedAt ? "ok" : ""}>
+                    {u.usedAt ? (
+                      `已寫成貼文（${formatTaipei(u.usedAt)}）`
+                    ) : u.skippedAt ? (
+                      <span className="muted">已略過</span>
+                    ) : (
+                      <form action={skip}>
+                        待發
+                        <input type="hidden" name="rec" value={id} />
+                        <input type="hidden" name="url" value={u.url} />
+                        <input type="hidden" name="at" value={u.at} />
+                        <div><SubmitButton className="danger">略過</SubmitButton></div>
+                      </form>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
