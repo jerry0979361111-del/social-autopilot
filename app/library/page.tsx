@@ -63,7 +63,7 @@ export default async function LibraryPage({
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12 }}>
         {photos.map((p) => (
           <div key={p.id} className="card" style={{ padding: 8, marginBottom: 0 }}>
-            <img src={p.data.url} alt="" style={{ width: "100%", aspectRatio: "4 / 3", objectFit: "cover", borderRadius: 6 }} />
+            <img src={p.data.url} alt="" loading="lazy" decoding="async" style={{ width: "100%", aspectRatio: "4 / 3", objectFit: "cover", borderRadius: 6 }} />
             <div style={{ fontSize: "0.9rem", marginTop: 6 }}><strong>{p.data.title}</strong></div>
             <div className="muted" style={{ fontSize: "0.8rem" }}>{p.data.source} · {p.data.description.slice(0, 60)}</div>
             <form action={remove} style={{ marginTop: 6 }}>
