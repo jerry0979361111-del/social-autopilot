@@ -220,7 +220,36 @@ const BANNED = /保證(獲利|賺|回報|收益|增值|出租)|穩賺|零風險|
 export type Review = { pass: boolean; score: number; issues: string[]; revisedCaption?: string };
 
 /** 發布前把關：品牌語氣、合規用語、重複度。不合格時附上修正版文案。 */
-export async function reviewCaption(caption: string, recentTitles: string[]): Promise<Review> {
+/**
+ * 去掉 hashtag 與資料來源行後，數正文裡有幾項「具體資訊」：
+ * 一個完整日期算一項（單獨的年份不算）、帶單位的數字算一項（金額、百分比、期間、距離等）。
+ * 簽證類別編號、單獨的年份這類不能說明「變了什麼」的數字不算。
+ */
+export function concreteFacts(caption: string): number {
+  let body = caption
+    .split("\n")
+    .filter((l) => !/^\s*#/.test(l) && !/資料來源/.test(l))
+    .join("\n");
+  const facts = new Set<string>();
+  const take = (re: RegExp) => {
+    body = body.replace(re, (m) => {
+      facts.add(m.replace(/\s+/g, ""));
+      return " ";
+    });
+  };
+  take(/(\d{4}\s*年\s*)?\d{1,2}\s*月(\s*\d{1,2}\s*日)?|\d{4}[-/.]\d{1,2}([-/.]\d{1,2})?/g); // 日期
+  take(/A\$\s?\d[\d,.]*\s*(萬|億)?|\d[\d,.]*\s*(%|％|萬|億|元|澳幣|澳元|台幣|歲|個月|週|天|小時|分鐘|公里|公尺|平方米|房|套|間)/g); // 帶單位的數字
+  return facts.size;
+}
+
+export type ReviewContext = {
+  /** 熱門新聞、官方更新等時事題材：一定要有具體內容與近期來源 */
+  news?: boolean;
+  /** 題材的發布日期（YYYY-MM-DD） */
+  sourceDate?: string;
+};
+
+export async function reviewCaption(caption: string, recentTitles: string[], ctx: ReviewContext = {}): Promise<Review> {
   const hard = caption.match(BANNED);
   const instructions = [
     `你是「${brand.name}」的社群內容審稿主編，負責在貼文自動發布前把關。`,
@@ -234,7 +263,11 @@ export async function reviewCaption(caption: string, recentTitles: string[]): Pr
     "4. 是否與近期貼文主題過於重複",
     "5. 是否為繁體中文（台灣用語）、無 Markdown、長度與 hashtag 適當",
     "6. 內容是否空泛：只說「規定有變化」「家長需注意」「建議關注官方公告」，卻沒寫出到底變了什麼、對誰、從何時開始、該怎麼做，就算空泛",
-    "score 為 0～100 分；有任何第 2、3、6 點問題就不能通過；分數低於 75 也不通過。修正版不可為了湊內容而捏造細節：查不到的具體內容就刪掉該段，改寫成較短但具體的文案。",
+    ctx.news
+      ? "7. 這是時事題材，標準更嚴：正文必須寫出至少兩項具體資訊（金額、百分比、日期、適用對象、具體規定內容），標題提到的數字（例如「上漲 25%」）正文一定要寫出並說明；只有趨勢描述或泛泛建議就算空泛。結尾要有「資料來源：媒體或機構（日期）」。"
+      : "",
+    "評分要嚴格：90 分以上＝具體、有用、可以直接發；80～89＝小瑕疵；80 分以下＝不能發。",
+    "score 為 0～100 分；有任何第 2、3、6、7 點問題就不能通過；分數低於 80 也不通過。修正版不可為了湊內容而捏造細節：查不到的具體內容就刪掉該段，改寫成較短但具體的文案；若連一項具體資訊都寫不出來，revisedCaption 留空。",
     "若不通過，請在 revisedCaption 提供修正後可直接發布的完整文案（保留原本主題與 hashtag 風格）。",
     '只輸出 JSON：{"pass":true/false,"score":0-100,"issues":["問題1"],"revisedCaption":"..."}',
   ]
@@ -244,8 +277,27 @@ export async function reviewCaption(caption: string, recentTitles: string[]): Pr
   const r = await askJson<Review>(instructions, input);
   const issues = Array.isArray(r.issues) ? r.issues.map(String) : [];
   if (hard) issues.unshift(`含有禁用字眼「${hard[0]}」`);
+  // 不靠 AI 自評、用程式確認的硬性規則（只對時事題材）
+  let ruleFail = false;
+  if (ctx.news) {
+    if (concreteFacts(caption) < 2) {
+      issues.unshift("時事貼文缺少具體數字或日期（至少要 2 項）");
+      ruleFail = true;
+    }
+    if (!/資料來源/.test(caption)) {
+      issues.unshift("時事貼文缺少資料來源");
+      ruleFail = true;
+    }
+    if (ctx.sourceDate) {
+      const age = Date.now() - new Date(ctx.sourceDate).getTime();
+      if (Number.isFinite(age) && age > 21 * 24 * 3600_000) {
+        issues.unshift(`題材來源日期 ${ctx.sourceDate} 已超過 3 週，不算近期熱門`);
+        ruleFail = true;
+      }
+    }
+  }
   return {
-    pass: Boolean(r.pass) && !hard && Number(r.score) >= 75,
+    pass: Boolean(r.pass) && !hard && !ruleFail && Number(r.score) >= 80,
     score: Number(r.score) || 0,
     issues,
     revisedCaption: r.revisedCaption ? String(r.revisedCaption) : undefined,

@@ -219,7 +219,11 @@ export async function fillNextSlot(trial?: Platform): Promise<string | null> {
   } else {
     try {
       const trends = await researchTrends(platform, covered);
-      trend = trends.find((t) => !covered.some((c) => similarTopic(c, t.title)));
+      const fresh = (t: TrendTopic) => {
+        const age = Date.now() - new Date(t.date).getTime();
+        return !Number.isFinite(age) || age <= 21 * 24 * 3600_000;
+      };
+      trend = trends.find((t) => fresh(t) && !covered.some((c) => similarTopic(c, t.title)));
     } catch {
       trend = undefined;
     }
@@ -266,18 +270,21 @@ export async function fillNextSlot(trial?: Platform): Promise<string | null> {
   try {
     const text = await generateText(topicWithRefs, [platform], { webSearch: true, channel: platform });
     let caption = text.caption;
-    let review = await reviewCaption(caption, recentTitles);
-    if (!review.pass && review.revisedCaption) {
-      caption = plainCaption(review.revisedCaption);
-      review = await reviewCaption(caption, recentTitles);
-    }
-    // 熱門議題或官方更新的貼文一定要有資料來源；模型漏寫就自動補在 hashtag 前
-    if (review.pass && trend && !/資料來源/.test(caption)) {
-      const lines = caption.trimEnd().split("\n");
+    // 時事題材：先補上資料來源再審，審稿時要求具體數字、日期與近期來源
+    const reviewCtx = trend ? { news: true, sourceDate: trend.date } : {};
+    const withSource = (c: string) => {
+      if (!trend || /資料來源/.test(c)) return c;
+      const lines = c.trimEnd().split("\n");
       let i = lines.length;
       while (i > 0 && /^\s*#/.test(lines[i - 1])) i--;
       lines.splice(i, 0, "", `資料來源：${trend.source}（${trend.date}）`);
-      caption = lines.join("\n").replace(/\n{3,}/g, "\n\n");
+      return lines.join("\n").replace(/\n{3,}/g, "\n\n");
+    };
+    caption = withSource(caption);
+    let review = await reviewCaption(caption, recentTitles, reviewCtx);
+    if (!review.pass && review.revisedCaption) {
+      caption = withSource(plainCaption(review.revisedCaption));
+      review = await reviewCaption(caption, recentTitles, reviewCtx);
     }
     // 文案定稿（通過審稿）後，才依文案與主題做圖
     const design = review.pass
