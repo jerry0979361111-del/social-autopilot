@@ -12,6 +12,7 @@ import { fetchMetrics } from "./meta";
 import { DEFAULT_OFFICIAL_SOURCES, markUsed, OFFICE_NAME, officialKnowledgeFor, pendingUpdates } from "./official";
 import {
   createRecord,
+  getRecord,
   MANAGER_TITLE,
   queryRecords,
   REPORT_PREFIX,
@@ -26,6 +27,16 @@ import { listPosts } from "./workflow";
 // 實際發布交給既有的排程流程（狀態「已排程」＋發布時間），由 cron 到點發出。
 
 export const CHANNEL_LABEL: Record<Platform, string> = { fb: "Facebook", ig: "Instagram" };
+
+// 簽證、稅務、法規類內容即使審稿通過，也要經營者核准才發
+const SENSITIVE =
+  /簽證|visa|subclass|移民|永居|\bPR\b|稅|印花|duty|tax|surcharge|firb|外國買家|海外買家|外國人購|外國投資|法規|法律|法案|條例|法院|判決|裁定|新規|規定|政策|legislation/i;
+
+export function sensitiveReason(text: string, official: boolean): string | null {
+  if (official) return "州政府官方稅務公告";
+  const m = SENSITIVE.exec(text);
+  return m ? `涉及「${m[0]}」相關內容` : null;
+}
 
 export const DEFAULT_PILLARS: Record<Platform, Pillar[]> = {
   fb: [
@@ -144,7 +155,8 @@ export function openSlots(
   for (const p of posts) {
     const s = p.data.managerSlot;
     if (!s) continue;
-    if (p.status === "草稿") drafts.set(s, (drafts.get(s) ?? 0) + 1);
+    if (p.data.approval?.status === "pending") taken.add(s);
+    else if (p.status === "草稿") drafts.set(s, (drafts.get(s) ?? 0) + 1);
     else taken.add(s);
   }
   for (const [s, n] of drafts) if (n >= 2) taken.add(s);
@@ -277,10 +289,12 @@ export async function fillNextSlot(trial?: Platform): Promise<string | null> {
       : undefined;
     const reelsScript =
       review.pass && platform === "ig" ? await generateReelsScript(text.title, caption).catch(() => undefined) : undefined;
+    const reason = review.pass ? sensitiveReason(`${text.title}\n${caption}\n${trend?.title ?? ""}`, Boolean(official)) : null;
+    const needsApproval = Boolean(reason) && !trial;
     const rec = await createRecord<PostData>({
       title: text.title,
-      status: review.pass && !trial ? "已排程" : "草稿",
-      publishAt: review.pass && !trial ? slot : null,
+      status: review.pass && !trial && !needsApproval ? "已排程" : "草稿",
+      publishAt: review.pass && !trial && !needsApproval ? slot : null,
       data: {
         kind: "post",
         topic: `${pillar.name}｜${text.title}`,
@@ -298,10 +312,11 @@ export async function fillNextSlot(trial?: Platform): Promise<string | null> {
           ? { state: official.rec.data.state, label: official.rec.data.label, title: official.update.title, url: official.update.url }
           : undefined,
         review: { pass: review.pass, score: review.score, issues: review.issues, at: new Date().toISOString() },
+        approval: needsApproval ? { status: "pending", slot, reason: reason!, at: new Date().toISOString() } : undefined,
       },
     });
     const msg = review.pass
-      ? `${label}：${trial ? "試產草稿" : "已排程"}「${text.title}」（${official ? `官方更新：${trend?.title}` : trend ? `熱門議題：${trend.title}` : pillar.name}，審稿 ${review.score} 分）`
+      ? `${label}：${trial ? "試產草稿" : needsApproval ? "待你核准" : "已排程"}「${text.title}」（${official ? `官方更新：${trend?.title}` : trend ? `熱門議題：${trend.title}` : pillar.name}，審稿 ${review.score} 分）`
       : `${label}：「${text.title}」未通過審稿，留在草稿未發布：${review.issues.join("；")}`;
     if (review.pass && official && !trial) await markUsed(official.rec.id, official.update.url, official.update.at);
     await addLog(msg, review.pass, rec.id);
@@ -431,6 +446,51 @@ export async function runManager(timeLeft: () => number): Promise<string[]> {
   if (timeLeft() > 150_000) {
     const msg = await fillNextSlot();
     if (msg) out.push(msg);
+  }
+  return out;
+}
+
+// ---------- 核准 ----------
+
+/** 核准：排進原本的時段；時段已過就盡快發（下一次 cron）。 */
+export async function approvePost(id: string): Promise<string> {
+  const rec = await getRecord<PostData>(id);
+  const a = rec.data.approval;
+  if (!a || a.status !== "pending") throw new Error("這則不在待核准狀態");
+  const slotMs = a.slot ? new Date(a.slot).getTime() : 0;
+  const publishAt = slotMs > Date.now() + 5 * 60_000 ? a.slot! : new Date(Date.now() + 5 * 60_000).toISOString();
+  await updateRecord<PostData>(id, {
+    status: "已排程",
+    publishAt,
+    data: { ...rec.data, approval: { ...a, status: "approved", at: new Date().toISOString() } },
+  });
+  return slotMs > Date.now() + 5 * 60_000 ? "已核准，會在原定時段發布" : "已核准，原定時段已過，下一次排程就會發布";
+}
+
+/** 退回：留在草稿、不發布，並讓出時段給 AI 社群經理補其他主題。 */
+export async function rejectPost(id: string): Promise<string> {
+  const rec = await getRecord<PostData>(id);
+  const a = rec.data.approval;
+  if (!a || a.status !== "pending") throw new Error("這則不在待核准狀態");
+  await updateRecord<PostData>(id, {
+    data: { ...rec.data, managerSlot: undefined, approval: { ...a, status: "rejected", at: new Date().toISOString() } },
+  });
+  return "已退回，不會發布；這個時段會由其他主題補上";
+}
+
+/** 在新規則上線前就排好的經理貼文：簽證、稅務、法規類一律改成待核准，避免未經確認就發出 */
+export async function holdSensitiveScheduled(): Promise<string[]> {
+  const out: string[] = [];
+  for (const p of await listPosts()) {
+    if (p.status !== "已排程" || p.data.origin !== "manager" || p.data.approval) continue;
+    const reason = sensitiveReason(`${p.title}\n${p.data.caption}\n${p.data.trend?.title ?? ""}`, Boolean(p.data.official));
+    if (!reason) continue;
+    await updateRecord<PostData>(p.id, {
+      status: "草稿",
+      publishAt: null,
+      data: { ...p.data, approval: { status: "pending", slot: p.publishAt ?? undefined, reason, at: new Date().toISOString() } },
+    });
+    out.push(`改為待核准：${p.title}`);
   }
   return out;
 }

@@ -147,6 +147,27 @@ export default async function ManagerPage({
         </section>
       )}
 
+      {posts.some((p) => p.data.approval?.status === "pending") && (
+        <section className="card" style={{ borderColor: "var(--warn)" }}>
+          <h2>待你核准（簽證、稅務、法規類）</h2>
+          <table>
+            <tbody>
+              {posts
+                .filter((p) => p.data.approval?.status === "pending")
+                .map((p) => (
+                  <tr key={p.id}>
+                    <td style={{ width: 140 }}>{formatTaipei(p.data.approval?.slot)}</td>
+                    <td>{p.data.platforms.map((x) => CHANNEL_LABEL[x]).join("、")}</td>
+                    <td>{p.title}</td>
+                    <td className="muted">{p.data.approval?.reason}</td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+          <p className="muted">到 <Link href="/posts">貼文</Link> 頁核對內容後按「核准發布」或「退回」。沒核准的不會發布。</p>
+        </section>
+      )}
+
       <section className="card">
         <h2>接下來的貼文</h2>
         {queue.length === 0 ? (
@@ -171,6 +192,7 @@ export default async function ManagerPage({
                   </td>
                   <td className={p.data.review?.pass ? "ok" : "err"}>
                     {p.data.review?.pass ? `通過 ${p.data.review.score} 分` : `未通過：${p.data.review?.issues.join("；")}`}
+                    {p.data.approval?.status === "pending" && <div style={{ color: "var(--warn)" }}>待你核准</div>}
                   </td>
                 </tr>
               ))}

@@ -1,6 +1,6 @@
 import { generateText } from "./ai";
 import { designPostImage } from "./design";
-import { getManager, runManager } from "./manager";
+import { getManager, holdSensitiveScheduled, runManager } from "./manager";
 import { checkOfficialSources, officialKnowledgeFor } from "./official";
 import { publishToPlatforms } from "./meta";
 import {
@@ -146,6 +146,13 @@ export async function runCron(budgetMs = 240_000) {
       await updateRecord(r.id, { status: "發布失敗" });
       report.recovered.push(r.title);
     }
+  }
+
+  // 1b) 簽證、稅務、法規類的經理貼文必須先核准；已排程但未核准的先攔下
+  try {
+    report.recovered.push(...(await holdSensitiveScheduled()));
+  } catch (e: any) {
+    report.recovered.push(`核准檢查錯誤：${e?.message ?? e}`);
   }
 
   // 2) 到點的排程貼文

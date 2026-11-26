@@ -23,6 +23,8 @@ export type PostData = {
   imageUrls?: string[];
   /** 給團隊參考的 Reels 腳本（不會自動發布） */
   reelsScript?: string;
+  /** 簽證、稅務、法規類貼文：需經營者核准後才排程 */
+  approval?: { status: "pending" | "approved" | "rejected"; slot?: string; reason: string; at: string };
   /** 由官方網站更新選題時的來源 */
   official?: { state: string; label: string; title: string; url: string };
   /** 由熱門新聞選題時的來源議題 */

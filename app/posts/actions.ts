@@ -6,6 +6,7 @@ import { archiveRecord, getRecord, updateRecord } from "@/lib/notion";
 import { back } from "@/lib/redirect";
 import { taipeiLocalToIso } from "@/lib/time";
 import type { Platform, PostData } from "@/lib/types";
+import { approvePost, rejectPost } from "@/lib/manager";
 import { createDraft, publishRecord } from "@/lib/workflow";
 
 const PATH = "/posts";
@@ -108,4 +109,12 @@ export async function selectPage(form: FormData) {
     await saveConnection({ ...conn, selectedPageId: id });
     return "已切換發布的粉專";
   });
+}
+
+export async function approve(form: FormData) {
+  await run(() => approvePost(String(form.get("id"))));
+}
+
+export async function reject(form: FormData) {
+  await run(() => rejectPost(String(form.get("id"))));
 }

@@ -5,6 +5,8 @@ import { formatTaipei, isoToTaipeiLocal } from "@/lib/time";
 import { PLATFORM_LABEL, type Platform } from "@/lib/types";
 import { listPosts } from "@/lib/workflow";
 import {
+  approve,
+  reject,
   deletePost,
   generatePost,
   publishNow,
@@ -102,7 +104,11 @@ export default async function PostsPage({
             <div>
               <div className="row">
                 <strong className="grow">{p.title}</strong>
-                <span className={`badge s-${p.status}`}>{p.status}</span>
+                {d.approval?.status === "pending" ? (
+                  <span className="badge s-發布中">待你核准</span>
+                ) : (
+                  <span className={`badge s-${p.status}`}>{p.status}</span>
+                )}
               </div>
               <div className="muted">
                 {(d.platforms ?? []).map((x) => PLATFORM_LABEL[x]).join(" + ")} · 建立 {formatTaipei(p.createdTime)}
@@ -110,6 +116,25 @@ export default async function PostsPage({
                 {d.automationId && " · 自動化"}
                 {d.origin === "manager" && ` · AI 社群經理（${d.pillar}）`}
               </div>
+              {d.approval?.status === "pending" && (
+                <div className="card" style={{ margin: "8px 0", padding: 12, borderColor: "var(--warn)" }}>
+                  <div>
+                    <strong>需要你核准才會發布</strong>（{d.approval.reason}）
+                    {d.approval.slot && <span className="muted"> · 原定時段 {formatTaipei(d.approval.slot)}</span>}
+                  </div>
+                  <div className="muted">請先核對文案中的日期、規定與數字是否與官方資料一致，需要修改可在下方「查看／編輯文案」改好再核准。</div>
+                  <div className="actions">
+                    <form action={approve}>
+                      <input type="hidden" name="id" value={p.id} />
+                      <SubmitButton className="primary" pendingText="核准中…">核准發布</SubmitButton>
+                    </form>
+                    <form action={reject}>
+                      <input type="hidden" name="id" value={p.id} />
+                      <SubmitButton className="danger" confirm="退回後這則不會發布，確定？">退回</SubmitButton>
+                    </form>
+                  </div>
+                </div>
+              )}
               {d.review && !d.review.pass && (
                 <p className="err" style={{ margin: "6px 0" }}>審稿未通過：{d.review.issues.join("；")}</p>
               )}
