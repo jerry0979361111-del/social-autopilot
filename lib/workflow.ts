@@ -1,4 +1,4 @@
-import { generateText } from "./ai";
+import { generateText, plainCaption } from "./ai";
 import { designPostImage } from "./design";
 import { getManager, holdSensitiveScheduled, runManager } from "./manager";
 import { notifyPublishFailed } from "./notify";
@@ -65,7 +65,8 @@ export async function publishRecord(id: string): Promise<NotionRecord<PostData>>
   if (pending.length === 0) return updateRecord(id, { status: "已發布" });
 
   await updateRecord(id, { status: "發布中" });
-  const results = { ...(data.results ?? {}), ...(await publishToPlatforms(data, pending)) };
+  // 發布前再清一次 Markdown，避免舊草稿或手動貼上的文字帶著 ** 與引用連結發出去
+  const results = { ...(data.results ?? {}), ...(await publishToPlatforms({ ...data, caption: plainCaption(data.caption) }, pending)) };
   const allOk = data.platforms.every((p) => results[p]?.ok);
   return updateRecord<PostData>(id, { status: allOk ? "已發布" : "發布失敗", data: { ...data, results } });
 }

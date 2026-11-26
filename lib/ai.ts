@@ -39,6 +39,22 @@ const CHANNEL_STYLE: Record<Platform, string[]> = {
   ],
 };
 
+/**
+ * 社群平台不會渲染 Markdown：去掉網路搜尋自動加上的引用連結「([網域](網址))」、粗體與標題符號，
+ * 只留下純文字（網址本身仍可保留在「資料來源」那一行）。
+ */
+export function plainCaption(text: string): string {
+  return text
+    .replace(/\s*\(\[([^\]]+)\]\((https?:[^)]+)\)\)/g, "") // ([ato.gov.au](https://...))
+    .replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g, "$1") // [文字](網址) → 文字
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/__([^_]+)__/g, "$1")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 export type GeneratedText = { title: string; caption: string };
 
 export async function generateText(
@@ -91,7 +107,7 @@ export async function generateText(
   if (!parsed.caption) throw new Error("AI 沒有產生文案，請再試一次");
   return {
     title: String(parsed.title || topic).slice(0, 80),
-    caption: String(parsed.caption),
+    caption: plainCaption(String(parsed.caption)),
   };
 }
 

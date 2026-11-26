@@ -2,6 +2,7 @@ import {
   analyzePerformance,
   generateReelsScript,
   generateText,
+  plainCaption,
   researchTrends,
   reviewCaption,
   similarTopic,
@@ -267,7 +268,7 @@ export async function fillNextSlot(trial?: Platform): Promise<string | null> {
     let caption = text.caption;
     let review = await reviewCaption(caption, recentTitles);
     if (!review.pass && review.revisedCaption) {
-      caption = review.revisedCaption;
+      caption = plainCaption(review.revisedCaption);
       review = await reviewCaption(caption, recentTitles);
     }
     // 熱門議題或官方更新的貼文一定要有資料來源；模型漏寫就自動補在 hashtag 前
