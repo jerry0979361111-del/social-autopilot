@@ -392,7 +392,17 @@ export async function composeEnd(question: string, cta: string): Promise<Buffer>
       }}
     >
       <div style={{ fontSize: 34, color: GOLD, letterSpacing: 4, display: "flex", marginBottom: 28 }}>想聽聽你的看法</div>
-      <div style={{ fontFamily: "Serif", fontSize: 64, lineHeight: 1.35, color: "#ffffff", display: "flex" }}>{question}</div>
+      <div
+        style={{
+          fontFamily: "Serif",
+          fontSize: [...question].length <= 13 ? 64 : [...question].length <= 26 ? 58 : 52,
+          lineHeight: 1.4,
+          color: "#ffffff",
+          display: "flex",
+        }}
+      >
+        {question}
+      </div>
       <div style={{ width: 88, height: 4, backgroundColor: GOLD, margin: "56px 0 40px 0", display: "flex" }} />
       <div style={{ fontSize: 40, lineHeight: 1.6, color: CHAMPAGNE, display: "flex" }}>{cta}</div>
       <BrandBar />
