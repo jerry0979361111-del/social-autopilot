@@ -9,6 +9,7 @@ import {
 } from "./ai";
 import { designPostImage } from "./design";
 import { fetchMetrics } from "./meta";
+import { notifyPendingApproval } from "./notify";
 import { DEFAULT_OFFICIAL_SOURCES, markUsed, OFFICE_NAME, officialKnowledgeFor, pendingUpdates } from "./official";
 import {
   createRecord,
@@ -319,6 +320,8 @@ export async function fillNextSlot(trial?: Platform): Promise<string | null> {
       ? `${label}：${trial ? "試產草稿" : needsApproval ? "待你核准" : "已排程"}「${text.title}」（${official ? `官方更新：${trend?.title}` : trend ? `熱門議題：${trend.title}` : pillar.name}，審稿 ${review.score} 分）`
       : `${label}：「${text.title}」未通過審稿，留在草稿未發布：${review.issues.join("；")}`;
     if (review.pass && official && !trial) await markUsed(official.rec.id, official.update.url, official.update.at);
+    if (needsApproval)
+      await notifyPendingApproval([{ title: text.title, platform: label, reason: reason!, slot, caption }]).catch(() => {});
     await addLog(msg, review.pass, rec.id);
     return msg;
   } catch (e: any) {
@@ -481,6 +484,7 @@ export async function rejectPost(id: string): Promise<string> {
 /** 在新規則上線前就排好的經理貼文：簽證、稅務、法規類一律改成待核准，避免未經確認就發出 */
 export async function holdSensitiveScheduled(): Promise<string[]> {
   const out: string[] = [];
+  const held: Parameters<typeof notifyPendingApproval>[0] = [];
   for (const p of await listPosts()) {
     if (p.status !== "已排程" || p.data.origin !== "manager" || p.data.approval) continue;
     const reason = sensitiveReason(`${p.title}\n${p.data.caption}\n${p.data.trend?.title ?? ""}`, Boolean(p.data.official));
@@ -491,6 +495,14 @@ export async function holdSensitiveScheduled(): Promise<string[]> {
       data: { ...p.data, approval: { status: "pending", slot: p.publishAt ?? undefined, reason, at: new Date().toISOString() } },
     });
     out.push(`改為待核准：${p.title}`);
+    held.push({
+      title: p.title,
+      platform: p.data.platforms.map((x) => CHANNEL_LABEL[x]).join("、"),
+      reason,
+      slot: p.publishAt ?? undefined,
+      caption: p.data.caption,
+    });
   }
+  await notifyPendingApproval(held).catch(() => {});
   return out;
 }

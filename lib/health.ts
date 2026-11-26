@@ -64,6 +64,14 @@ export async function runChecks(): Promise<Check[]> {
     ok: Boolean(process.env.BLOB_READ_WRITE_TOKEN),
     detail: process.env.BLOB_READ_WRITE_TOKEN ? "已連接" : "未連接：Vercel 專案 → Storage → 建立 Blob 並連接此專案，再 Redeploy",
   });
+  checks.push({
+    name: "Email 通知",
+    ok: Boolean(process.env.RESEND_API_KEY && process.env.NOTIFY_EMAIL),
+    detail:
+      process.env.RESEND_API_KEY && process.env.NOTIFY_EMAIL
+        ? `已設定，收件：${process.env.NOTIFY_EMAIL}`
+        : `未設定：${["RESEND_API_KEY", "NOTIFY_EMAIL"].filter((k) => !process.env[k]).join("、")}（待核准與發布失敗時寄信通知）`,
+  });
   const brandMissing = BRAND_ENV.filter((k) => !process.env[k]);
   checks.push({
     name: "品牌設定",

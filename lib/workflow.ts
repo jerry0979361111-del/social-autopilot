@@ -1,6 +1,7 @@
 import { generateText } from "./ai";
 import { designPostImage } from "./design";
 import { getManager, holdSensitiveScheduled, runManager } from "./manager";
+import { notifyPublishFailed } from "./notify";
 import { checkOfficialSources, officialKnowledgeFor } from "./official";
 import { publishToPlatforms } from "./meta";
 import {
@@ -166,11 +167,20 @@ export async function runCron(budgetMs = 240_000) {
     [{ property: "發布時間", direction: "ascending" }],
     20,
   );
+  const failed: { title: string; errors: string[] }[] = [];
   for (const r of due) {
     if (timeLeft() < 60_000) break;
     const res = await publishRecord(r.id);
     report.posts.push(`${r.title} → ${res.status}`);
+    if (res.status === "發布失敗")
+      failed.push({
+        title: r.title,
+        errors: Object.entries(res.data.results ?? {})
+          .filter(([, x]) => x && !x.ok)
+          .map(([pf, x]) => `${pf.toUpperCase()}：${x!.error}`),
+      });
   }
+  await notifyPublishFailed(failed).catch(() => {});
 
   // 3) AI 社群經理：每週成效分析、補齊未來 7 天的貼文
   try {
