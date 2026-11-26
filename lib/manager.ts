@@ -153,15 +153,20 @@ export function openSlots(
     .filter((iso) => !taken.has(slotKey(platform, iso)));
 }
 
-/** 為最近的一個空時段（FB 或 IG）產一則貼文。通過把關就排程，沒通過就留成草稿並記錄原因。 */
-export async function fillNextSlot(): Promise<string | null> {
+/**
+ * 為最近的一個空時段（FB 或 IG）產一則貼文。通過把關就排程，沒通過就留成草稿並記錄原因。
+ * trial：試產指定平台的一則，只存草稿、不排程，也不佔用時段或官方題材。
+ */
+export async function fillNextSlot(trial?: Platform): Promise<string | null> {
   const m = await getManager();
   const channels = channelsOf(m);
   const posts = await listPosts();
-  const next = (["fb", "ig"] as Platform[])
-    .map((p) => ({ platform: p, slot: openSlots(p, channels[p], posts)[0] }))
-    .filter((x) => x.slot)
-    .sort((a, b) => a.slot!.localeCompare(b.slot!))[0];
+  const next = trial
+    ? { platform: trial, slot: "" }
+    : (["fb", "ig"] as Platform[])
+        .map((p) => ({ platform: p, slot: openSlots(p, channels[p], posts)[0] }))
+        .filter((x) => x.slot)
+        .sort((a, b) => a.slot!.localeCompare(b.slot!))[0];
   if (!next) return null;
   const { platform } = next;
   const slot = next.slot!;
@@ -266,8 +271,8 @@ export async function fillNextSlot(): Promise<string | null> {
       review.pass && platform === "ig" ? await generateReelsScript(text.title, caption).catch(() => undefined) : undefined;
     const rec = await createRecord<PostData>({
       title: text.title,
-      status: review.pass ? "已排程" : "草稿",
-      publishAt: review.pass ? slot : null,
+      status: review.pass && !trial ? "已排程" : "草稿",
+      publishAt: review.pass && !trial ? slot : null,
       data: {
         kind: "post",
         topic: `${pillar.name}｜${text.title}`,
@@ -279,7 +284,7 @@ export async function fillNextSlot(): Promise<string | null> {
         reelsScript,
         origin: "manager",
         pillar: pillar.name,
-        managerSlot: slotKey(platform, slot),
+        managerSlot: trial ? undefined : slotKey(platform, slot),
         trend: trend ? { title: trend.title, source: trend.source, date: trend.date } : undefined,
         official: official
           ? { state: official.rec.data.state, label: official.rec.data.label, title: official.update.title, url: official.update.url }
@@ -288,9 +293,9 @@ export async function fillNextSlot(): Promise<string | null> {
       },
     });
     const msg = review.pass
-      ? `${label}：已排程「${text.title}」（${official ? `官方更新：${trend?.title}` : trend ? `熱門議題：${trend.title}` : pillar.name}，審稿 ${review.score} 分）`
+      ? `${label}：${trial ? "試產草稿" : "已排程"}「${text.title}」（${official ? `官方更新：${trend?.title}` : trend ? `熱門議題：${trend.title}` : pillar.name}，審稿 ${review.score} 分）`
       : `${label}：「${text.title}」未通過審稿，留在草稿未發布：${review.issues.join("；")}`;
-    if (review.pass && official) await markUsed(official.rec.id, official.update.url, official.update.at);
+    if (review.pass && official && !trial) await markUsed(official.rec.id, official.update.url, official.update.at);
     await addLog(msg, review.pass, rec.id);
     return msg;
   } catch (e: any) {

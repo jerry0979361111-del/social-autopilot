@@ -86,6 +86,13 @@ export async function fillNow() {
   });
 }
 
+export async function trialPost(form: FormData) {
+  await run(async () => {
+    const platform = form.get("platform") === "fb" ? "fb" : "ig";
+    return (await fillNextSlot(platform)) ?? "沒有產出";
+  });
+}
+
 export async function reportNow() {
   await run(runWeeklyReport);
 }

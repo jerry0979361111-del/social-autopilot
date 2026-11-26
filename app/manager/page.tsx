@@ -6,7 +6,7 @@ import type { NotionRecord } from "@/lib/notion";
 import { formatTaipei, WEEKDAYS } from "@/lib/time";
 import type { ChannelPlan, ManagerData, Platform, ReportData } from "@/lib/types";
 import { listPosts } from "@/lib/workflow";
-import { fillNow, reportNow, saveSettings } from "./actions";
+import { fillNow, reportNow, saveSettings, trialPost } from "./actions";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -131,6 +131,14 @@ export default async function ManagerPage({
           <div className="actions">
             <form action={fillNow}>
               <SubmitButton pendingText="搜尋熱門議題、產文、審稿、找照片中…（約 2～3 分鐘）">立即補一則</SubmitButton>
+            </form>
+            <form action={trialPost}>
+              <input type="hidden" name="platform" value="ig" />
+              <SubmitButton pendingText="試產 IG 輪播中…（約 2～3 分鐘）">試產 IG 輪播（只存草稿）</SubmitButton>
+            </form>
+            <form action={trialPost}>
+              <input type="hidden" name="platform" value="fb" />
+              <SubmitButton pendingText="試產 FB 貼文中…">試產 FB 貼文（只存草稿）</SubmitButton>
             </form>
             <form action={reportNow}>
               <SubmitButton pendingText="抓取數據並分析中…">立即產生成效報告</SubmitButton>
