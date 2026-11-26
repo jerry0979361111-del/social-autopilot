@@ -57,7 +57,7 @@ export async function artDirect(
     "tag：左上角標籤，格式像「墨爾本・學區」「買房知識」「留學生活」，8 字內。",
     "queries：3～4 組到圖庫找「真實照片」用的英文關鍵字，由具體到一般，每組 2～5 個英文單字，例如 [\"Carlton Melbourne terrace houses\", \"Melbourne university campus\", \"Melbourne suburb street\", \"Melbourne skyline\"]。",
     "scene：英文 50～100 字，具體寫出地點、建築或景物、季節、時間與光線、拍攝角度；不要描述任何文字或招牌。",
-    "headline、subline 不得出現保證獲利、誇大或捏造的數字。",
+    "headline、subline 不得出現保證獲利、誇大或捏造的數字，也不可比文案更正面或更樂觀；文案若在講限制變嚴、成本增加，標題就要如實反映。",
     library.length
       ? [
           "以下是品牌自己的照片庫（官網建案圖與實拍素材），請優先使用：",
@@ -69,7 +69,9 @@ export async function artDirect(
     opts.carousel
       ? [
           "這篇是 IG 輪播貼文，請另外規劃內頁：",
-          "slides：4～6 張，每張只講一個重點；title 12 字內，body 40～70 字，可用短句或 2～3 個列點（每點一行，以「・」開頭）。第一張內頁說明「為什麼這個主題重要」，最後一張內頁做總結或注意事項。",
+          "slides：4～6 張，每張只講一個重點。title 14 字內，要具體寫出這張的重點（例如「境內不能再轉簽學生簽證」），不可用「重點一」「主要新規」這類空泛標題。",
+          "body：3～4 個列點，每點一行、以「・」開頭、12～20 字（要能在圖上排成一行），寫出具體資訊（對象、條件、日期、數字、該怎麼做）；資訊來自文案，不可新增文案沒有的事實。",
+          "第一張內頁說明「為什麼這件事跟你有關」，最後一張內頁整理家長或買家該做的準備與注意事項。",
           "question：最後一張的互動問題，只問一個、容易回答（例如「你會選 A 還是 B？」），30 字內。",
           "cta：最後一張的行動呼籲，30 字內（例如「收藏起來，分享給正在準備留學的家長」或「私訊『墨爾本』索取選區整理」）。",
         ].join("\n")
@@ -88,7 +90,7 @@ export async function artDirect(
     libraryId: r.libraryId && library.some((x) => x.id === r.libraryId) ? String(r.libraryId) : undefined,
     slides: Array.isArray(r.slides)
       ? r.slides
-          .map((x: any) => ({ title: String(x?.title ?? "").slice(0, 20), body: String(x?.body ?? "").slice(0, 160) }))
+          .map((x: any) => ({ title: String(x?.title ?? "").slice(0, 20), body: String(x?.body ?? "").slice(0, 220) }))
           .filter((x) => x.title)
           .slice(0, 6)
       : undefined,
@@ -340,10 +342,13 @@ export async function composeSlide(index: number, total: number, slide: { title:
     .split(/\n+/)
     .map((x) => x.trim())
     .filter(Boolean);
+  // 依最長一行縮放字級，盡量讓每個列點排在一行內，避免單字落到下一行
+  const longest = Math.max(0, ...lines.map((l) => [...l.replace(/^[・•\-]\s*/, "")].length));
+  const bodySize = longest <= 19 ? 42 : longest <= 21 ? 38 : longest <= 23 ? 35 : 34;
   return render(
     <div style={{ width: W, height: H, display: "flex", flexDirection: "column", position: "relative", backgroundColor: IVORY, fontFamily: "Sans" }}>
       <div style={{ height: 16, backgroundColor: blue, display: "flex" }} />
-      <div style={{ display: "flex", flexDirection: "column", padding: "110px 88px 0 88px" }}>
+      <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", flex: 1, padding: "0 88px 150px 88px" }}>
         <div style={{ display: "flex", alignItems: "baseline" }}>
           <div style={{ fontFamily: "Serif", fontSize: 120, color: GOLD, lineHeight: 1, display: "flex" }}>
             {String(index).padStart(2, "0")}
@@ -351,12 +356,12 @@ export async function composeSlide(index: number, total: number, slide: { title:
           <div style={{ fontSize: 30, color: "#8C6A2E", marginLeft: 20, display: "flex" }}>/ {String(total).padStart(2, "0")}</div>
         </div>
         <div style={{ width: 88, height: 4, backgroundColor: GOLD, margin: "40px 0 36px 0", display: "flex" }} />
-        <div style={{ fontFamily: "Serif", fontSize: 68, lineHeight: 1.3, color: blue, display: "flex" }}>{slide.title}</div>
-        <div style={{ display: "flex", flexDirection: "column", marginTop: 44 }}>
+        <div style={{ fontFamily: "Serif", fontSize: 64, lineHeight: 1.3, color: blue, display: "flex" }}>{slide.title}</div>
+        <div style={{ display: "flex", flexDirection: "column", marginTop: 48 }}>
           {lines.map((line, i) => {
             const bullet = /^[・•\-]\s*/.exec(line);
             return (
-              <div key={i} style={{ fontSize: 40, lineHeight: 1.65, color: INK, display: "flex", marginBottom: 12 }}>
+              <div key={i} style={{ fontSize: bodySize, lineHeight: 1.6, color: INK, display: "flex", marginBottom: 22 }}>
                 {bullet && <div style={{ color: GOLD, width: 44, flexShrink: 0, display: "flex" }}>・</div>}
                 <div style={{ display: "flex", flex: 1 }}>{bullet ? line.slice(bullet[0].length) : line}</div>
               </div>

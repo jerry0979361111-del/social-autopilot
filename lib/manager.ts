@@ -257,6 +257,14 @@ export async function fillNextSlot(trial?: Platform): Promise<string | null> {
       caption = review.revisedCaption;
       review = await reviewCaption(caption, recentTitles);
     }
+    // 熱門議題或官方更新的貼文一定要有資料來源；模型漏寫就自動補在 hashtag 前
+    if (review.pass && trend && !/資料來源/.test(caption)) {
+      const lines = caption.trimEnd().split("\n");
+      let i = lines.length;
+      while (i > 0 && /^\s*#/.test(lines[i - 1])) i--;
+      lines.splice(i, 0, "", `資料來源：${trend.source}（${trend.date}）`);
+      caption = lines.join("\n").replace(/\n{3,}/g, "\n\n");
+    }
     // 文案定稿（通過審稿）後，才依文案與主題做圖
     const design = review.pass
       ? await designPostImage({
